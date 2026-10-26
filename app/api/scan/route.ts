@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractLabel } from "@/lib/extract";
+import { extractLabel, providerConfig } from "@/lib/extract";
 import { findDrug } from "@/lib/drugs";
 import { evaluate, DISCLAIMER } from "@/lib/verdict";
 import { mergeLabels } from "@/lib/merge";
@@ -57,7 +57,13 @@ export async function POST(req: NextRequest) {
       const firstError = reads.find((r) => r.status === "rejected") as PromiseRejectedResult;
       return NextResponse.json({ error: `Vision API failed: ${firstError.reason instanceof Error ? firstError.reason.message : "unknown"}` }, { status: 502 });
     }
-    return NextResponse.json({ error: "AI_NOT_CONFIGURED", message: "Vision API key is not set on the server yet." }, { status: 503 });
+    // Audit fix: a missing key and an unreadable photo are different
+    // failures. Do not blame the key when the key is set but no photo
+    // could be read.
+    if (!providerConfig().key) {
+      return NextResponse.json({ error: "AI_NOT_CONFIGURED", message: "Vision API key is not set on the server yet." }, { status: 503 });
+    }
+    return NextResponse.json({ error: "UNREADABLE_PHOTO", message: "No photo could be read. Retake in better light with the full label visible." }, { status: 422 });
   }
 
   const merged = mergeLabels(labels);

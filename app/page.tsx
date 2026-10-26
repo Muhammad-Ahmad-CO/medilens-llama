@@ -6,13 +6,14 @@ const COLORS: Record<string, string> = { green: "#1a7f37", amber: "#9a6700", red
 // Item 1: 3 labelled photo slots. Each slot is optional, at least one
 // photo is required. Slot order is the merge order: front, strip, full pack.
 const SLOTS = [
-  { key: "front", label: "1. Front of pack — drug name and maker" },
-  { key: "strip", label: "2. Batch / expiry strip — batch and expiry" },
-  { key: "pack", label: "3. Full pack / seal — whole pack" },
+  { key: "front", label: "1. Front of pack — drug name and maker", short: "Front" },
+  { key: "strip", label: "2. Batch / expiry strip — batch and expiry", short: "Batch / expiry strip" },
+  { key: "pack", label: "3. Full pack / seal — whole pack", short: "Full pack / seal" },
 ] as const;
 
 export default function Home() {
   const [photos, setPhotos] = useState<string[]>(["", "", ""]);
+  const [sentSlots, setSentSlots] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
@@ -59,20 +60,52 @@ export default function Home() {
     setPlaying(false);
   }
 
-  function onFile(slot: number, f: File | undefined) {
+  // Audit fix: downscale phone photos to max 1280px JPEG before upload.
+  // A full-size phone photo is several MB; 3 of them would blow past the
+  // 6 MB per-photo limit and the server request limit. 1280px is plenty
+  // for reading a label. Falls back to the original photo on any error.
+  async function downscale(dataUrl: string): Promise<string> {
+    try {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("image load failed"));
+        img.src = dataUrl;
+      });
+      const max = 1280;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      if (scale === 1) return dataUrl;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return dataUrl;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.8);
+    } catch {
+      return dataUrl;
+    }
+  }
+
+  async function onFile(slot: number, f: File | undefined) {
     if (!f) return;
-    const r = new FileReader();
-    r.onload = () => {
-      const next = [...photos];
-      next[slot] = String(r.result);
-      setPhotos(next);
-    };
-    r.readAsDataURL(f);
+    const original = await new Promise<string>((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.readAsDataURL(f);
+    });
+    const small = await downscale(original);
+    const next = [...photos];
+    next[slot] = small;
+    setPhotos(next);
   }
 
   async function scan() {
     const images = photos.filter((p) => p);
     if (images.length === 0) return;
+    // Remember which slots were sent, in sent order, so the per-photo
+    // readings below are labelled by slot, not just "Photo 1, 2".
+    setSentSlots(SLOTS.filter((_, i) => photos[i]).map((s) => s.short));
     setBusy(true); setError(""); setResult(null);
     try {
       const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images }) });
@@ -112,7 +145,7 @@ export default function Home() {
           {result.perPhoto && (
             <ul>
               {result.perPhoto.map((p: any, i: number) => (
-                <li key={i}>Photo {i + 1}: {p.drugName ?? "name not read"} | batch {p.batchNumber ?? "—"} | expiry {p.expiryDate ?? "—"}</li>
+                <li key={i}>{sentSlots[i] || `Photo ${i + 1}`}: {p.drugName ?? "name not read"} | batch {p.batchNumber ?? "—"} | expiry {p.expiryDate ?? "—"}</li>
               ))}
             </ul>
           )}

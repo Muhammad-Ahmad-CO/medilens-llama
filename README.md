@@ -15,12 +15,16 @@ so GREEN is never proof of authenticity.
 Send 1 to 3 photos: front (drug name and maker), batch/expiry strip
 (batch and expiry), full pack/seal (whole pack). Each photo is read
 separately by the same vision model, then `lib/merge.ts` combines them:
-first non-null value wins per field, confidence is the lowest photo
-confidence. Different drug names across photos, or different batch
-numbers across photos, are conflicts: they pull a GREEN verdict down
-to AMBER with a visible reason, never silently pick one, and never
-turn a RED into GREEN. The old single-photo `{ image }` request still
-works. One request counts as one scan for the 10/minute limit.
+first non-null value wins per field, confidence is the lowest
+confidence among photos that actually contributed a field (a photo
+that read nothing does not drag the verdict down). Different drug
+names, batch numbers, or expiry dates across photos are conflicts:
+they pull a GREEN verdict down to AMBER with a visible reason, never
+silently pick one, and never turn a RED into GREEN. The old
+single-photo `{ image }` request still works. One request counts as
+one scan for the 10/minute limit. Phone photos are downscaled in the
+browser to max 1280px JPEG before upload, so 3 photos stay within the
+6 MB per-photo limit.
 
 ## No medical advice
 This app does NOT give dosage, usage or treatment advice. It only checks what is printed on the pack.

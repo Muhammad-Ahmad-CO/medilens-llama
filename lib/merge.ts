@@ -4,17 +4,22 @@
  * combines those readings. It never guesses a missing field and never
  * decides the verdict — lib/verdict.ts still decides that.
  *
- * Merge rules:
+ * Merge rules (audit-fixed, Oct 2026):
  * - First non-null value wins, in the order the photos were sent
  *   (slot order: front, batch/expiry strip, full pack/seal).
- * - Confidence is the LOWEST confidence of the photos that were read,
- *   so a weak photo cannot hide behind a strong one.
- * - Different drug names across photos, or different batch numbers
- *   across photos, are conflicts, not a silent pick. The scan route
- *   turns a GREEN verdict into AMBER when a conflict exists; a RED
- *   verdict stays RED. No conflict ever turns a RED into GREEN.
+ * - Confidence is the LOWEST confidence among photos that actually
+ *   contributed a field to the merged label. A photo that read nothing
+ *   (for example a seal photo with no text) must not drag a clean
+ *   reading down to AMBER on its own.
+ * - Different drug names, batch numbers, or expiry dates across
+ *   photos are conflicts, not a silent pick. The scan route turns a
+ *   GREEN verdict into AMBER when a conflict exists; a RED verdict
+ *   stays RED. No conflict ever turns a RED into GREEN. Expiry is
+ *   included because picking one expiry silently could flip an
+ *   expired/valid verdict.
  */
 import type { Label } from "./verdict";
+import { parseExpiry } from "./verdict";
 
 export interface MergedLabel {
   label: Label;
@@ -63,17 +68,43 @@ export function mergeLabels(labels: Label[]): MergedLabel {
       `Batch numbers do not match across photos (${batches.join(" / ")}). Check by eye.`
     );
   }
-  const confidence =
-    labels.length > 0 ? Math.min(...labels.map((l) => l.confidence)) : 0.5;
-  return {
-    label: {
-      drugName: first(labels.map((l) => l.drugName)),
-      manufacturer: first(labels.map((l) => l.manufacturer)),
-      batchNumber: first(labels.map((l) => l.batchNumber)),
-      expiryDate: first(labels.map((l) => l.expiryDate)),
-      confidence,
-    },
-    perPhoto: labels,
-    conflicts,
+  // Expiry conflict: compare by parsed date when possible, otherwise by
+  // raw text, so "08/28" vs "AUG 2028" does not false-flag, while a real
+  // date difference does flag.
+  const expiryKeys = new Set<string>();
+  const expiryShown: string[] = [];
+  for (const l of labels) {
+    if (!l.expiryDate) continue;
+    const parsed = parseExpiry(l.expiryDate);
+    const key = parsed ? `date:${parsed.getTime()}` : `raw:${norm(l.expiryDate)}`;
+    if (!expiryKeys.has(key)) {
+      expiryKeys.add(key);
+      expiryShown.push(l.expiryDate);
+    }
+  }
+  if (expiryShown.length > 1) {
+    conflicts.push(
+      `Expiry dates do not match across photos (${expiryShown.join(" / ")}). Check by eye.`
+    );
+  }
+
+  const merged: Label = {
+    drugName: first(labels.map((l) => l.drugName)),
+    manufacturer: first(labels.map((l) => l.manufacturer)),
+    batchNumber: first(labels.map((l) => l.batchNumber)),
+    expiryDate: first(labels.map((l) => l.expiryDate)),
+    confidence: 0.5,
   };
+  // Only photos that contributed a field count toward confidence.
+  const contributing = labels.filter(
+    (l) =>
+      (l.drugName && l.drugName === merged.drugName) ||
+      (l.manufacturer && l.manufacturer === merged.manufacturer) ||
+      (l.batchNumber && l.batchNumber === merged.batchNumber) ||
+      (l.expiryDate && l.expiryDate === merged.expiryDate)
+  );
+  if (contributing.length > 0) {
+    merged.confidence = Math.min(...contributing.map((l) => l.confidence));
+  }
+  return { label: merged, perPhoto: labels, conflicts };
 }
