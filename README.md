@@ -11,6 +11,17 @@ Missing batch or expiry = AMBER. Maker mismatch = AMBER. Expiry within 90 days =
 Otherwise GREEN. A fake copying a real batch/expiry can still score GREEN — no batch registry exists,
 so GREEN is never proof of authenticity.
 
+## Multi-photo scan (Item 1, hackathon build)
+Send 1 to 3 photos: front (drug name and maker), batch/expiry strip
+(batch and expiry), full pack/seal (whole pack). Each photo is read
+separately by the same vision model, then `lib/merge.ts` combines them:
+first non-null value wins per field, confidence is the lowest photo
+confidence. Different drug names across photos, or different batch
+numbers across photos, are conflicts: they pull a GREEN verdict down
+to AMBER with a visible reason, never silently pick one, and never
+turn a RED into GREEN. The old single-photo `{ image }` request still
+works. One request counts as one scan for the 10/minute limit.
+
 ## No medical advice
 This app does NOT give dosage, usage or treatment advice. It only checks what is printed on the pack.
 Screening only. If in doubt, show the pack to a pharmacist.

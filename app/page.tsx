@@ -3,8 +3,16 @@ import { useRef, useState } from "react";
 
 const COLORS: Record<string, string> = { green: "#1a7f37", amber: "#9a6700", red: "#c1121f" };
 
+// Item 1: 3 labelled photo slots. Each slot is optional, at least one
+// photo is required. Slot order is the merge order: front, strip, full pack.
+const SLOTS = [
+  { key: "front", label: "1. Front of pack — drug name and maker" },
+  { key: "strip", label: "2. Batch / expiry strip — batch and expiry" },
+  { key: "pack", label: "3. Full pack / seal — whole pack" },
+] as const;
+
 export default function Home() {
-  const [photo, setPhoto] = useState("");
+  const [photos, setPhotos] = useState<string[]>(["", "", ""]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
@@ -51,18 +59,23 @@ export default function Home() {
     setPlaying(false);
   }
 
-  async function onFile(f: File | undefined) {
+  function onFile(slot: number, f: File | undefined) {
     if (!f) return;
     const r = new FileReader();
-    r.onload = () => setPhoto(String(r.result));
+    r.onload = () => {
+      const next = [...photos];
+      next[slot] = String(r.result);
+      setPhotos(next);
+    };
     r.readAsDataURL(f);
   }
 
   async function scan() {
-    if (!photo) return;
+    const images = photos.filter((p) => p);
+    if (images.length === 0) return;
     setBusy(true); setError(""); setResult(null);
     try {
-      const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: photo }) });
+      const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images }) });
       const j = await res.json();
       if (!res.ok) setError(j.message || j.error || "Scan failed.");
       else setResult(j);
@@ -70,15 +83,24 @@ export default function Home() {
     setBusy(false);
   }
 
+  const chosen = photos.filter((p) => p).length;
+
   return (
     <main>
       <h1>MediLens</h1>
-      <p>Take a photo of a medicine pack. The AI reads the label, batch and expiry, then gives a GREEN, AMBER or RED screening result.</p>
-      <input type="file" accept="image/*" capture="environment" onChange={(e) => onFile(e.target.files?.[0])} />
-      {photo && <div><img src={photo} alt="Medicine pack" style={{ maxWidth: "100%", marginTop: 12 }} /></div>}
+      <p>Take photos of a medicine pack. The AI reads the label, batch and expiry, then gives a GREEN, AMBER or RED screening result. Take 1 photo, or up to 3 for a stronger check.</p>
+      {SLOTS.map((slot, i) => (
+        <div key={slot.key} style={{ marginTop: 12 }}>
+          <label>{slot.label}</label>
+          <div>
+            <input type="file" accept="image/*" capture="environment" onChange={(e) => onFile(i, e.target.files?.[0])} />
+          </div>
+          {photos[i] && <img src={photos[i]} alt={slot.label} style={{ maxWidth: "100%", marginTop: 8 }} />}
+        </div>
+      ))}
       <div style={{ marginTop: 12 }}>
-        <button onClick={scan} disabled={!photo || busy} style={{ padding: "10px 20px", fontSize: 16 }}>
-          {busy ? "Scanning…" : "Scan pack"}
+        <button onClick={scan} disabled={chosen === 0 || busy} style={{ padding: "10px 20px", fontSize: 16 }}>
+          {busy ? "Scanning…" : `Scan pack (${chosen} photo${chosen === 1 ? "" : "s"})`}
         </button>
       </div>
       {error && <p style={{ color: "#c1121f" }}>{error}</p>}
@@ -86,6 +108,14 @@ export default function Home() {
         <section style={{ border: `3px solid ${COLORS[result.verdict.level]}`, padding: 16, marginTop: 16 }}>
           <h2 style={{ color: COLORS[result.verdict.level] }}>{result.verdict.level.toUpperCase()} — {result.verdict.title}</h2>
           <p>Drug read: {result.label.drugName ?? "—"} | Batch: {result.label.batchNumber ?? "—"} | Expiry: {result.label.expiryDate ?? "—"}</p>
+          <p style={{ fontSize: 13 }}>Photos: {result.photosRead ?? 1} read out of {result.photosSent ?? 1} sent.</p>
+          {result.perPhoto && (
+            <ul>
+              {result.perPhoto.map((p: any, i: number) => (
+                <li key={i}>Photo {i + 1}: {p.drugName ?? "name not read"} | batch {p.batchNumber ?? "—"} | expiry {p.expiryDate ?? "—"}</li>
+              ))}
+            </ul>
+          )}
           <ul>{result.verdict.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
           <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <label htmlFor="voice-lang">Listen in:</label>
