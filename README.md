@@ -21,6 +21,32 @@ Screening only. If in doubt, show the pack to a pharmacist.
   `https://inference.baseten.co/v1`. Baseten does not support JSON mode for this model, so the app
   parses JSON out of the reply text. If Plan B is used, the UI footer "Built with Muse Spark Open" applies.
 
+## Voice (free Meta models, no card, no endpoint)
+Beside every verdict there is a Listen button with a language choice:
+English (default), Urdu, Sindhi, Punjabi. The written site and written
+verdict always stay in English; changing the voice language only changes
+the spoken verdict. Playback is tap-only, never autoplay.
+
+How it works (server-side `/api/speak`, token in server env only):
+- Translation: Meta NLLB `facebook/nllb-200-distilled-600M` (English ->
+  `urd_Arab`, `snd_Arab`, `pan_Guru`) via the Hugging Face Inference API.
+- Voice: Meta MMS-TTS via the same API — `facebook/mms-tts-eng`,
+  `facebook/mms-tts-urd-script_arabic`, `facebook/mms-tts-snd`,
+  `facebook/mms-tts-pan` (Punjabi is listed as Eastern/Gurmukhi side, so it
+  may not match Shahmukhi perfectly).
+- Limits: 10 listens/minute per IP, spoken text capped at 500 characters,
+  short demo verdicts only. First request can wait while a free model loads.
+- Honest limits: Sindhi voice (`facebook/mms-tts-snd`) is NOT yet confirmed
+  by a live test — if HF returns 404 the button shows that exact error
+  instead of fake audio. MMS/NLLB are CC-BY-NC, fine for a hackathon demo.
+- Superseded plan: the earlier SeamlessM4T v2 Inference Endpoint plan was
+  cancelled — it needed a card/billing. This stack needs no endpoint.
+
+If Hugging Face returns 401/403, the token is the problem: a plain Read
+token may not be enough for HF's newer Inference Providers routing. Make a
+fine-grained token with "Make calls to Inference Providers" enabled and put
+it in the server env instead. Never put any token in chat or in the repo.
+
 ## Env (server only, never commit)
 ```
 AI_PROVIDER=meta
@@ -29,6 +55,8 @@ META_API_KEY=
 AI_PROVIDER=baseten
 BASETEN_API_KEY=
 BASETEN_MODEL=meta-models/muse-spark-open
+# voice (Hugging Face, server only):
+HF_TOKEN=
 ```
 
 ## Run
