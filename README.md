@@ -26,6 +26,13 @@ one scan for the 10/minute limit. Phone photos are downscaled in the
 browser to max 1280px JPEG before upload, so 3 photos stay within the
 6 MB per-photo limit.
 
+## Drug list (Item 2, hackathon build)
+50 common Pakistan medicines, written fresh in the hackathon window:
+the original 12 MVP entries plus 38 new entries. Maker is recorded
+only when confident, otherwise null (no maker check). No strength is
+recorded, so no strength check is made. No controlled, narcotic, or
+sedative medicines are included. This is NOT a copy of any old list.
+
 ## No medical advice
 This app does NOT give dosage, usage or treatment advice. It only checks what is printed on the pack.
 Screening only. If in doubt, show the pack to a pharmacist.
