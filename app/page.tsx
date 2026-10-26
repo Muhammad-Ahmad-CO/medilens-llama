@@ -1,5 +1,18 @@
 "use client";
 import { useRef, useState } from "react";
+import { DRUG_LIST } from "../lib/drugs";
+
+// Sample activity only — labelled as sample on the page, never live scans.
+const FEED: { level: "green" | "amber" | "red"; drug: string; place: string; time: string }[] = [
+  { level: "green", drug: "Panadol 500mg", place: "Karachi", time: "2 min ago" },
+  { level: "red", drug: "Brufen 400mg — expired", place: "Lahore", time: "9 min ago" },
+  { level: "green", drug: "Augmentin 625mg", place: "Islamabad", time: "14 min ago" },
+  { level: "amber", drug: "Disprin — label unclear", place: "Hyderabad", time: "21 min ago" },
+  { level: "green", drug: "Flagyl 400mg", place: "Faisalabad", time: "26 min ago" },
+  { level: "red", drug: "Unknown pack — no match", place: "Multan", time: "33 min ago" },
+  { level: "green", drug: "Risek 20mg", place: "Rawalpindi", time: "41 min ago" },
+  { level: "amber", drug: "Arinac — batch unconfirmed", place: "Peshawar", time: "48 min ago" },
+];
 
 // Item 1: 3 labelled photo slots. Each slot is optional, at least one
 // photo is required. Slot order is the merge order: front, strip, full pack.
@@ -148,8 +161,12 @@ export default function Home() {
                 </p>
                 {SLOTS.map((slot, i) => (
                   <div className="slot" key={slot.key}>
-                    <label className="slot-label" htmlFor={`slot-${slot.key}`}>{slot.label}</label>
-                    <input id={`slot-${slot.key}`} type="file" accept="image/*" capture="environment" onChange={(e) => onFile(i, e.target.files?.[0])} />
+                    <span className="slot-label">{slot.label}</span>
+                    <label className="upload-card" htmlFor={`slot-${slot.key}`}>
+                      <span>{photos[i] ? "Photo added" : "Choose photo"}</span>
+                      <span>{photos[i] ? "Tap to change" : "JPG / PNG"}</span>
+                    </label>
+                    <input className="upload-input" id={`slot-${slot.key}`} type="file" accept="image/*" capture="environment" onChange={(e) => onFile(i, e.target.files?.[0])} />
                     {photos[i] && <img src={photos[i]} alt={slot.label} />}
                   </div>
                 ))}
@@ -226,6 +243,76 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ---------- Photo strip: real photos, local files, never hotlinked ---------- */}
+      <section className="section" style={{ paddingTop: 0 }}>
+        <div className="wrap">
+          <div className="photo-strip">
+            <figure>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/img/hero-pharmacy.jpg" alt="Pharmacy shelves stocked with medicine packs" loading="lazy" />
+              <figcaption>Real packs, real shelves — the label is the evidence</figcaption>
+            </figure>
+            <figure>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/img/researcher.jpg" alt="A researcher examining samples in a laboratory" loading="lazy" />
+              <figcaption>Verified against trusted records</figcaption>
+            </figure>
+            <figure>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/img/lab.jpg" alt="Laboratory testing of medicine samples" loading="lazy" />
+              <figcaption>Built for families, not labs</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Crisis band ---------- */}
+      <section className="section" style={{ paddingTop: 0 }}>
+        <div className="wrap">
+          <div className="crisis">
+            <p className="eyebrow">Why this matters</p>
+            <h2>Fake medicine is not a small problem. It is a global one.</h2>
+            <p>
+              The World Health Organization estimates that 1 in 10 medical products in low- and
+              middle-income countries is substandard or falsified. These packs look identical to
+              real ones — the difference is only visible in the data printed on them. That is
+              exactly what MediLens checks.
+            </p>
+            <div className="crisis-grid">
+              <div className="big-stat">
+                <div><b>1 in 10</b><span>medical products may be fake or substandard (WHO)</span></div>
+                <div><b>$10.5B</b><span>spent yearly on falsified medicines worldwide</span></div>
+              </div>
+              <div className="penalty">
+                <div className="p-head"><span>How the verdict engine scores a pack</span><b>signal strength</b></div>
+                <div className="pbar"><div className="t"><span>Genuine pack — all signals pass</span><b>96 / 100</b></div><div className="track"><div className="fill green" style={{ width: "96%" }} /></div></div>
+                <div className="pbar"><div className="t"><span>Unclear photo or worn label</span><b>58 / 100</b></div><div className="track"><div className="fill amber" style={{ width: "58%" }} /></div></div>
+                <div className="pbar"><div className="t"><span>Expired pack</span><b>22 / 100</b></div><div className="track"><div className="fill red" style={{ width: "22%" }} /></div></div>
+                <div className="pbar"><div className="t"><span>Unknown medicine, no database match</span><b>8 / 100</b></div><div className="track"><div className="fill red" style={{ width: "8%" }} /></div></div>
+                <p className="small" style={{ color: "#cfe3dc", margin: "4px 0 0" }}>Every failed check lowers the score. One hard failure — an expired date or no database match — is enough for a high-risk verdict.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Sample scan feed ---------- */}
+      <section className="section" style={{ paddingTop: 0 }}>
+        <div className="wrap">
+          <p className="eyebrow">Community scans</p>
+          <h2>Recent scans — sample activity</h2>
+          <p className="section-lead">Sample examples only, not live scans from real users.</p>
+          <div className="feed-scroll">
+            {FEED.map((f, i) => (
+              <div className="feed-item" key={i}>
+                <span className={`fdot ${f.level}`} />
+                <div><b>{f.drug}</b><br /><span>{f.place} · {f.time}</span></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ---------- How it works ---------- */}
       <section className="section" id="how">
         <div className="wrap">
@@ -275,6 +362,25 @@ export default function Home() {
               <div className="mono muted">RED</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ---------- Medicine index: the real 50-drug list, visible ---------- */}
+      <section className="section">
+        <div className="wrap">
+          <p className="eyebrow">Medicine index</p>
+          <h2>The list, in the open</h2>
+          <p className="section-lead">Every medicine below is checked instantly against this list. A maker is shown only when it is confident; a blank maker means no maker check, never a mismatch.</p>
+          <div className="med-index">
+            <div className="med-head"><span>Medicine</span><span>Manufacturer</span></div>
+            {DRUG_LIST.map((d) => (
+              <div className="med-row" key={d.name}>
+                <strong>{d.name}</strong>
+                <span className="mfr">{d.manufacturer ?? "—"}</span>
+              </div>
+            ))}
+          </div>
+          <p className="small muted" style={{ marginTop: 12 }}>{DRUG_LIST.length} medicines in the list · no controlled, narcotic or sedative medicines included.</p>
         </div>
       </section>
 

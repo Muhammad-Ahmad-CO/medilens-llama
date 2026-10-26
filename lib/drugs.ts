@@ -75,3 +75,7 @@ export function findDrug(name: string | null): DrugMatch | null {
   const n = norm(name);
   return LIST.find((d) => norm(d.name) === n || n.includes(norm(d.name)) || norm(d.name).includes(n)) ?? null;
 }
+
+// Exported only so the homepage medicine index can show the real list
+// (same entries, same makers). No verdict logic changes.
+export const DRUG_LIST: readonly DrugMatch[] = LIST;
