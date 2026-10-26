@@ -1,8 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
 
-const COLORS: Record<string, string> = { green: "#1a7f37", amber: "#9a6700", red: "#c1121f" };
-
 // Item 1: 3 labelled photo slots. Each slot is optional, at least one
 // photo is required. Slot order is the merge order: front, strip, full pack.
 const SLOTS = [
@@ -117,60 +115,195 @@ export default function Home() {
   }
 
   const chosen = photos.filter((p) => p).length;
+  const conf = result ? Math.round((result.verdict.confidence ?? 0) * 100) : 0;
 
   return (
-    <main>
-      <h1>MediLens</h1>
-      <p>Take photos of a medicine pack. The AI reads the label, batch and expiry, then gives a GREEN, AMBER or RED screening result. Take 1 photo, or up to 3 for a stronger check.</p>
-      {SLOTS.map((slot, i) => (
-        <div key={slot.key} style={{ marginTop: 12 }}>
-          <label>{slot.label}</label>
-          <div>
-            <input type="file" accept="image/*" capture="environment" onChange={(e) => onFile(i, e.target.files?.[0])} />
+    <>
+      {/* ---------- Hero + scanner ---------- */}
+      <section className="hero">
+        <div className="wrap">
+          <div className="hero-grid">
+            <div>
+              <p className="eyebrow">Medicine authenticity checker</p>
+              <h1>Is this medicine genuine?</h1>
+              <p className="lead">
+                Photograph a medicine pack. Meta Muse vision reads the label, batch and expiry, then
+                checks them against a fresh list of 50 common Pakistani medicines — and explains the
+                result in plain words, with reasons you can check.
+              </p>
+              <div className="hero-cta">
+                <a className="btn btn-primary" href="#scanner">Scan a medicine</a>
+                <a className="btn btn-ghost" href="#how">See how it works →</a>
+              </div>
+              <p className="small muted" style={{ marginTop: 20 }}>
+                Screening only, not medical advice. A GREEN result does not prove a pack is genuine.
+              </p>
+            </div>
+
+            <div id="scanner">
+              <div className="scanner-card">
+                <h2 style={{ fontSize: "1.25rem" }}>Scan a medicine pack</h2>
+                <p className="small muted" style={{ margin: "6px 0 4px" }}>
+                  Take 1 photo, or up to 3 for a stronger check. Photos are downscaled in your browser before upload.
+                </p>
+                {SLOTS.map((slot, i) => (
+                  <div className="slot" key={slot.key}>
+                    <label className="slot-label" htmlFor={`slot-${slot.key}`}>{slot.label}</label>
+                    <input id={`slot-${slot.key}`} type="file" accept="image/*" capture="environment" onChange={(e) => onFile(i, e.target.files?.[0])} />
+                    {photos[i] && <img src={photos[i]} alt={slot.label} />}
+                  </div>
+                ))}
+                <div className="scan-actions">
+                  <button className="btn btn-primary" onClick={scan} disabled={chosen === 0 || busy}>
+                    {busy ? "Scanning…" : `Scan pack (${chosen} photo${chosen === 1 ? "" : "s"})`}
+                  </button>
+                </div>
+                {error && <p className="error-text">{error}</p>}
+              </div>
+
+              {result && (
+                <section className={`verdict-card verdict-${result.verdict.level}`}>
+                  <h2>{result.verdict.level.toUpperCase()} — {result.verdict.title}</h2>
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span className="small">Confidence</span>
+                      <span className="mono">{conf}%</span>
+                    </div>
+                    <div className="conf-bar"><i style={{ width: `${conf}%` }} /></div>
+                    <p className="small muted" style={{ margin: "4px 0 0" }}>
+                      Photos: {result.photosRead ?? 1} read out of {result.photosSent ?? 1} sent.
+                    </p>
+                  </div>
+                  <h3 style={{ fontSize: "1.05rem", marginTop: 20 }}>Why this verdict</h3>
+                  <ul className="reason-list">
+                    {result.verdict.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                  </ul>
+                  <h3 style={{ fontSize: "1.05rem", marginTop: 20 }}>Label reading</h3>
+                  <div className="data-row"><span>Drug</span><strong>{result.label.drugName ?? "—"}</strong></div>
+                  <div className="data-row"><span>Maker</span><strong>{result.label.manufacturer ?? "—"}</strong></div>
+                  <div className="data-row"><span>Batch</span><strong className="mono">{result.label.batchNumber ?? "—"}</strong></div>
+                  <div className="data-row"><span>Expiry</span><strong className="mono">{result.label.expiryDate ?? "—"}</strong></div>
+                  {result.perPhoto && (
+                    <>
+                      <h3 style={{ fontSize: "1.05rem", marginTop: 20 }}>Per-photo readings</h3>
+                      <ul className="perphoto-list">
+                        {result.perPhoto.map((p: any, i: number) => (
+                          <li key={i}>{sentSlots[i] || `Photo ${i + 1}`}: {p.drugName ?? "name not read"} | batch {p.batchNumber ?? "—"} | expiry {p.expiryDate ?? "—"}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  <div className="voice-row">
+                    <label htmlFor="voice-lang">Listen in:</label>
+                    <select id="voice-lang" value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)}>
+                      <option value="en">English</option>
+                      <option value="ur">Urdu</option>
+                      <option value="snd">Sindhi</option>
+                      <option value="pan">Punjabi</option>
+                    </select>
+                    {!playing ? (
+                      <button className="btn btn-secondary" onClick={listen} disabled={speakBusy}>
+                        {speakBusy ? "Loading voice…" : "Listen"}
+                      </button>
+                    ) : (
+                      <button className="btn btn-secondary" onClick={stopAudio}>Stop</button>
+                    )}
+                  </div>
+                  <p className="small">Written result stays in English. Only the spoken result changes language.</p>
+                  {speakError && <p className="error-text">{speakError}</p>}
+                  <div className="disclaimer-note">{result.disclaimer}</div>
+                </section>
+              )}
+            </div>
           </div>
-          {photos[i] && <img src={photos[i]} alt={slot.label} style={{ maxWidth: "100%", marginTop: 8 }} />}
+
+          <div className="stats">
+            <div className="stat"><b>50</b><span>medicines in the fresh Pakistan list</span></div>
+            <div className="stat"><b>3</b><span>photos in one scan, merged into one verdict</span></div>
+            <div className="stat"><b>Meta Muse</b><span>vision model reading the label</span></div>
+            <div className="stat"><b>No hardware</b><span>just your phone camera, nothing to buy</span></div>
+          </div>
         </div>
-      ))}
-      <div style={{ marginTop: 12 }}>
-        <button onClick={scan} disabled={chosen === 0 || busy} style={{ padding: "10px 20px", fontSize: 16 }}>
-          {busy ? "Scanning…" : `Scan pack (${chosen} photo${chosen === 1 ? "" : "s"})`}
-        </button>
-      </div>
-      {error && <p style={{ color: "#c1121f" }}>{error}</p>}
-      {result && (
-        <section style={{ border: `3px solid ${COLORS[result.verdict.level]}`, padding: 16, marginTop: 16 }}>
-          <h2 style={{ color: COLORS[result.verdict.level] }}>{result.verdict.level.toUpperCase()} — {result.verdict.title}</h2>
-          <p>Drug read: {result.label.drugName ?? "—"} | Batch: {result.label.batchNumber ?? "—"} | Expiry: {result.label.expiryDate ?? "—"}</p>
-          <p style={{ fontSize: 13 }}>Photos: {result.photosRead ?? 1} read out of {result.photosSent ?? 1} sent.</p>
-          {result.perPhoto && (
-            <ul>
-              {result.perPhoto.map((p: any, i: number) => (
-                <li key={i}>{sentSlots[i] || `Photo ${i + 1}`}: {p.drugName ?? "name not read"} | batch {p.batchNumber ?? "—"} | expiry {p.expiryDate ?? "—"}</li>
-              ))}
-            </ul>
-          )}
-          <ul>{result.verdict.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
-          <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <label htmlFor="voice-lang">Listen in:</label>
-            <select id="voice-lang" value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)} style={{ padding: 8, fontSize: 15 }}>
-              <option value="en">English</option>
-              <option value="ur">Urdu</option>
-              <option value="snd">Sindhi</option>
-              <option value="pan">Punjabi</option>
-            </select>
-            {!playing ? (
-              <button onClick={listen} disabled={speakBusy} style={{ padding: "8px 16px", fontSize: 15 }}>
-                {speakBusy ? "Loading voice…" : "Listen"}
-              </button>
-            ) : (
-              <button onClick={stopAudio} style={{ padding: "8px 16px", fontSize: 15 }}>Stop</button>
-            )}
+      </section>
+
+      {/* ---------- How it works ---------- */}
+      <section className="section" id="how">
+        <div className="wrap">
+          <p className="eyebrow">How it works</p>
+          <h2>Three steps, one clear answer</h2>
+          <p className="section-lead">No typing, no barcodes to hunt for. Photograph the pack and the checks run in the same order every time.</p>
+          <div className="steps">
+            <div className="step">
+              <div className="step-num">01</div>
+              <h3 style={{ marginTop: 8 }}>Photograph the pack</h3>
+              <p className="small muted">Front of the pack, the batch/expiry strip, and the full pack if you can. Good light and a straight angle give the clearest reading.</p>
+            </div>
+            <div className="step">
+              <div className="step-num">02</div>
+              <h3 style={{ marginTop: 8 }}>AI reads the label</h3>
+              <p className="small muted">Meta Muse vision extracts the medicine name, maker, batch number and expiry date from each photo, then merges the readings into one label.</p>
+            </div>
+            <div className="step">
+              <div className="step-num">03</div>
+              <h3 style={{ marginTop: 8 }}>Checked, then explained</h3>
+              <p className="small muted">The reading is matched against the list, the maker is compared, and the expiry is checked. Every reason is listed in plain words.</p>
+            </div>
           </div>
-          <p style={{ fontSize: 13 }}>Written result stays in English. Only the spoken result changes language.</p>
-          {speakError && <p style={{ color: "#c1121f" }}>{speakError}</p>}
-          <p style={{ fontSize: 13 }}>{result.disclaimer}</p>
-        </section>
-      )}
-    </main>
+        </div>
+      </section>
+
+      {/* ---------- Verdict showcase ---------- */}
+      <section className="section" id="verdicts">
+        <div className="wrap">
+          <p className="eyebrow">Verdicts</p>
+          <h2>Every verdict explains itself</h2>
+          <p className="section-lead">Examples of what each level means. A real scan shows its own reasons, not these examples.</p>
+          <div className="verdict-rows">
+            <div className="vrow vrow-green">
+              <div><span className="pill">Likely genuine</span></div>
+              <div>Drug found in the list, maker matches, expiry is in the future. All critical checks passed.</div>
+              <div className="mono muted">GREEN</div>
+            </div>
+            <div className="vrow vrow-amber">
+              <div><span className="pill">Be careful</span></div>
+              <div>Maker on the pack does not match the record, or the batch or expiry could not be read. Check before use.</div>
+              <div className="mono muted">AMBER</div>
+            </div>
+            <div className="vrow vrow-red">
+              <div><span className="pill">High risk</span></div>
+              <div>Pack is expired, the drug is not in the list, or no drug name could be read. Do not use.</div>
+              <div className="mono muted">RED</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Features ---------- */}
+      <section className="section">
+        <div className="wrap">
+          <p className="eyebrow">Features</p>
+          <h2>More than a scanner</h2>
+          <div className="features">
+            <div className="feature"><div className="feature-tile">3</div><h3>Multi-photo scan</h3><p className="small muted">Front, strip and full pack merge into one verdict. A conflict between photos drops GREEN to AMBER, never hides a risk.</p></div>
+            <div className="feature"><div className="feature-tile">50</div><h3>Fresh Pakistan list</h3><p className="small muted">50 common Pakistani medicines, written fresh for this hackathon. A maker is shown only when it is confident.</p></div>
+            <div className="feature"><div className="feature-tile">✓</div><h3>Explainable verdicts</h3><p className="small muted">You see exactly why a pack passed or failed, in plain words, plus the exact label reading and per-photo readings.</p></div>
+            <div className="feature"><div className="feature-tile">4</div><h3>Listen in 4 languages</h3><p className="small muted">Tap Listen to hear the verdict in English, Urdu, Sindhi or Punjabi. The written result always stays in English.</p></div>
+            <div className="feature"><div className="feature-tile">!</div><h3>Screening only</h3><p className="small muted">This checks authenticity signs, it never gives dosage, usage or treatment advice, and never diagnoses.</p></div>
+            <div className="feature"><div className="feature-tile">P</div><h3>Private by design</h3><p className="small muted">Scans are not stored on a server. Photos go to the vision model for reading, and the verdict is shown to you alone.</p></div>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Closing ---------- */}
+      <section className="section">
+        <div className="wrap">
+          <div className="closing">
+            <h2>Check your medicine. Right now.</h2>
+            <p className="muted" style={{ margin: "0 0 20px" }}>One photo is enough to start. If in doubt, show the pack to a pharmacist before use.</p>
+            <a className="btn btn-primary" href="#scanner">Scan a medicine</a>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }

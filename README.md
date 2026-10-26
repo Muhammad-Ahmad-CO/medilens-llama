@@ -11,6 +11,9 @@ Missing batch or expiry = AMBER. Maker mismatch = AMBER. Expiry within 90 days =
 Otherwise GREEN. A fake copying a real batch/expiry can still score GREEN — no batch registry exists,
 so GREEN is never proof of authenticity.
 
+## Design (hackathon build)
+Clinical light design, built fresh for this repo: clean white, teal-green `#0E7A5F` accent, Manrope headlines, Inter body, IBM Plex Mono for batch/expiry. Dense sections (hero + scanner, how it works, verdict showcase, features, closing), flat colours, hairline borders, no gradients, no orbs, no marquee, no emoji icons. Only `app/layout.tsx`, `app/page.tsx` and `app/globals.css` carry it; scan logic, verdict rules, drug list and voice code are untouched by the design.
+
 ## Multi-photo scan (Item 1, hackathon build)
 Send 1 to 3 photos: front (drug name and maker), batch/expiry strip
 (batch and expiry), full pack/seal (whole pack). Each photo is read
