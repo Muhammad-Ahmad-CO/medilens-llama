@@ -44,7 +44,15 @@ export function parseLabelText(text: string): Label | null {
       batchNumber: j.batchNumber ?? null,
       expiryDate: j.expiryDate ?? null,
       confidence: typeof j.confidence === "number" ? j.confidence : 0.55,
-      barcode: typeof j.barcode === "string" ? j.barcode : null,
+      // Barcode digits often come back as a JSON number (8901234567890)
+      // instead of a string — coerce numbers to string, otherwise the
+      // barcode value would be silently dropped to null.
+      barcode:
+        typeof j.barcode === "string"
+          ? j.barcode
+          : typeof j.barcode === "number"
+            ? String(j.barcode)
+            : null,
       barcodeProduct: typeof j.barcodeProduct === "string" ? j.barcodeProduct : null,
     };
   } catch {

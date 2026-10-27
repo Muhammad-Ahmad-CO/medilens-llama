@@ -104,7 +104,12 @@ export const VOICE_LANGS: Record<
 export const NLLB_MODEL = "facebook/nllb-200-distilled-600M";
 
 export function isVoiceLang(v: unknown): v is VoiceLang {
-  return typeof v === "string" && v in VOICE_LANGS;
+  // hasOwnProperty, NOT `in`: `in` also matches inherited properties, so
+  // a lang of "constructor" would wrongly pass and then crash the lookup.
+  return (
+    typeof v === "string" &&
+    Object.prototype.hasOwnProperty.call(VOICE_LANGS, v)
+  );
 }
 
 // Short spoken form of a verdict. Keep it short: HF free inference and
