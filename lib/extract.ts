@@ -11,8 +11,8 @@
 import type { Label } from "./verdict";
 
 const PROMPT = `Read this medicine pack photo. Return ONLY a JSON object, no other text:
-{"drugName": string or null, "manufacturer": string or null, "batchNumber": string or null, "expiryDate": string or null, "confidence": number 0 to 1}
-Rules: copy text exactly as printed. If a field is not readable, use null — never guess. Do not give dosage, usage or medical advice.`;
+{"drugName": string or null, "manufacturer": string or null, "batchNumber": string or null, "expiryDate": string or null, "confidence": number 0 to 1, "barcode": string or null, "barcodeProduct": string or null}
+Rules: copy text exactly as printed. If a field is not readable, use null — never guess. barcode is the digits printed under the barcode, if visible, else null. barcodeProduct is a product name printed on or next to the barcode label, if one is visible, else null. Do not give dosage, usage or medical advice.`;
 
 export function providerConfig() {
   const provider = (process.env.AI_PROVIDER || "meta").toLowerCase();
@@ -44,6 +44,8 @@ export function parseLabelText(text: string): Label | null {
       batchNumber: j.batchNumber ?? null,
       expiryDate: j.expiryDate ?? null,
       confidence: typeof j.confidence === "number" ? j.confidence : 0.55,
+      barcode: typeof j.barcode === "string" ? j.barcode : null,
+      barcodeProduct: typeof j.barcodeProduct === "string" ? j.barcodeProduct : null,
     };
   } catch {
     return null;

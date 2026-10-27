@@ -79,6 +79,30 @@ export async function POST(req: NextRequest) {
     verdict.reasons = [...merged.conflicts, ...verdict.reasons];
   }
 
+  // Feature 1 — Barcode vs Text Cross-Check. Honest limit: a bare barcode
+  // number cannot be mapped to a medicine name (no GTIN registry), so a
+  // mismatch fires ONLY when the barcode label itself carries a product
+  // name that resolves to a DIFFERENT known drug than the front of the
+  // pack. An unreadable/absent barcode, or a barcode name that matches
+  // the front name, never changes the verdict. Like a conflict, a
+  // mismatch only pulls GREEN down to AMBER, never changes a RED.
+  const barcodeDrug = findDrug(merged.label.barcodeProduct);
+  if (
+    merged.label.barcodeProduct &&
+    barcodeDrug &&
+    drug &&
+    barcodeDrug.name !== drug.name
+  ) {
+    const reason =
+      `Barcode does not match the printed medicine name. ` +
+      `Barcode label shows "${merged.label.barcodeProduct}" but the front of the pack shows "${merged.label.drugName}".`;
+    if (verdict.level === "green") {
+      verdict.level = "amber";
+      verdict.title = AMBER_TITLE;
+    }
+    verdict.reasons = [reason, ...verdict.reasons];
+  }
+
   return NextResponse.json({
     label: merged.label,
     perPhoto: merged.perPhoto,

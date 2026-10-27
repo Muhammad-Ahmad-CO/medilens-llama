@@ -1,6 +1,8 @@
 "use client";
 import { useRef, useState } from "react";
 import { DRUG_LIST } from "../lib/drugs";
+import { VOICE_LANGS, GUIDE_STEPS, BLURRY_PROMPT } from "../lib/voice";
+import { saveCabinetItem } from "../lib/cabinet";
 
 // Sample activity only — labelled as sample on the page, never live scans.
 const FEED: { level: "green" | "amber" | "red"; drug: string; place: string; time: string }[] = [
@@ -34,6 +36,14 @@ export default function Home() {
   const [speakBusy, setSpeakBusy] = useState(false);
   const [speakError, setSpeakError] = useState("");
   const [playing, setPlaying] = useState(false);
+  // Voice guide (Feature 2): speaks ONLY after the user taps Start.
+  const [guideLang, setGuideLang] = useState("en");
+  const [guideStep, setGuideStep] = useState(0);
+  const [guideActive, setGuideActive] = useState(false);
+  const [guideBusy, setGuideBusy] = useState(false);
+  const [guideError, setGuideError] = useState("");
+  // Cabinet (Feature 3): saved only on tap, never automatically.
+  const [savedMsg, setSavedMsg] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string>("");
 
@@ -43,32 +53,91 @@ export default function Home() {
     return text.replace(/\s+/g, " ").trim().slice(0, 500);
   }
 
-  async function listen() {
-    stopAudio();
-    setSpeakBusy(true); setSpeakError("");
+  async function fetchAudio(text: string, lang: string): Promise<{ blob?: Blob; message?: string }> {
     try {
-      const res = await fetch("/api/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: speakText(), lang: voiceLang }) });
+      const res = await fetch("/api/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang }) });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setSpeakError(j.message || j.error || "Voice failed.");
-        return;
+        return { message: j.message || j.error || "Voice failed." };
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = url;
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.onended = () => setPlaying(false);
-      setPlaying(true);
-      await audio.play();
-    } catch { setSpeakError("Network error. Try again."); }
+      return { blob: await res.blob() };
+    } catch {
+      return { message: "Network error. Try again." };
+    }
+  }
+
+  function playBlob(blob: Blob) {
+    stopAudio();
+    const url = URL.createObjectURL(blob);
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = url;
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.onended = () => setPlaying(false);
+    setPlaying(true);
+    return audio.play().catch(() => undefined);
+  }
+
+  async function listen() {
+    setSpeakBusy(true); setSpeakError("");
+    const out = await fetchAudio(speakText(), voiceLang);
+    if (out.blob) await playBlob(out.blob);
+    else setSpeakError(out.message || "Voice failed.");
     setSpeakBusy(false);
   }
 
   function stopAudio() {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     setPlaying(false);
+  }
+
+  // Voice guide (Feature 2): nothing plays until the user taps Start.
+  async function startGuide() {
+    setGuideActive(true); setGuideStep(0); setGuideError("");
+    setGuideBusy(true);
+    const out = await fetchAudio(GUIDE_STEPS[0], guideLang);
+    if (out.blob) await playBlob(out.blob);
+    else setGuideError(out.message || "Voice failed.");
+    setGuideBusy(false);
+  }
+
+  async function nextGuide() {
+    const next = Math.min(guideStep + 1, GUIDE_STEPS.length - 1);
+    setGuideStep(next); setGuideError("");
+    setGuideBusy(true);
+    const out = await fetchAudio(GUIDE_STEPS[next], guideLang);
+    if (out.blob) await playBlob(out.blob);
+    else setGuideError(out.message || "Voice failed.");
+    setGuideBusy(false);
+  }
+
+  function stopGuide() {
+    stopAudio();
+    setGuideActive(false);
+  }
+
+  async function hearGuideVerdict() {
+    if (!result) return;
+    // Blurry prompt: spoken when the reading itself was uncertain
+    // (confidence below 0.6). There is no separate blur detector
+    // in this round — photo-quality check is explicitly out of scope.
+    const prefix = result.verdict.confidence < 0.6 ? `${BLURRY_PROMPT} ` : "";
+    setGuideBusy(true); setGuideError("");
+    const out = await fetchAudio(prefix + speakText(), guideLang);
+    if (out.blob) await playBlob(out.blob);
+    else setGuideError(out.message || "Voice failed.");
+    setGuideBusy(false);
+  }
+
+  function saveToCabinet() {
+    if (!result?.label?.drugName) return;
+    saveCabinetItem({
+      name: result.label.drugName,
+      batch: result.label.batchNumber ?? null,
+      expiry: result.label.expiryDate ?? null,
+      scanDate: new Date().toISOString().slice(0, 10),
+    });
+    setSavedMsg("Saved to cabinet");
   }
 
   // Audit fix: downscale phone photos to max 1280px JPEG before upload.
@@ -117,7 +186,7 @@ export default function Home() {
     // Remember which slots were sent, in sent order, so the per-photo
     // readings below are labelled by slot, not just "Photo 1, 2".
     setSentSlots(SLOTS.filter((_, i) => photos[i]).map((s) => s.short));
-    setBusy(true); setError(""); setResult(null);
+    setBusy(true); setError(""); setResult(null); setSavedMsg("");
     try {
       const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images }) });
       const j = await res.json();
@@ -159,6 +228,45 @@ export default function Home() {
                 <p className="small muted" style={{ margin: "6px 0 4px" }}>
                   Take 1 photo, or up to 3 for a stronger check. Photos are downscaled in your browser before upload.
                 </p>
+                <div className="guide-box">
+                  <strong>Voice guide</strong>
+                  <p className="small muted" style={{ margin: "4px 0 10px" }}>
+                    Tap Start and the guide speaks each step in your language. It never plays on its own.
+                  </p>
+                  <div className="voice-row" style={{ marginTop: 0 }}>
+                    <label htmlFor="guide-lang">Guide language:</label>
+                    <select id="guide-lang" value={guideLang} onChange={(e) => setGuideLang(e.target.value)}>
+                      {Object.entries(VOICE_LANGS).map(([code, cfg]) => (
+                        <option key={code} value={code}>{cfg.label}</option>
+                      ))}
+                    </select>
+                    {!guideActive ? (
+                      <button className="btn btn-secondary" onClick={startGuide} disabled={guideBusy}>
+                        {guideBusy ? "Loading voice…" : "Start voice guide"}
+                      </button>
+                    ) : (
+                      <>
+                        <button className="btn btn-secondary" onClick={nextGuide} disabled={guideBusy || guideStep >= GUIDE_STEPS.length - 1}>
+                          Next prompt
+                        </button>
+                        <button className="btn btn-secondary" onClick={stopGuide}>Stop guide</button>
+                      </>
+                    )}
+                  </div>
+                  {guideActive && (
+                    <p className="small" style={{ margin: "10px 0 0" }}>
+                      Step {guideStep + 1} of {GUIDE_STEPS.length}: {GUIDE_STEPS[guideStep]}
+                    </p>
+                  )}
+                  {result && (
+                    <div className="voice-row">
+                      <button className="btn btn-secondary" onClick={hearGuideVerdict} disabled={guideBusy}>
+                        Hear guide verdict
+                      </button>
+                    </div>
+                  )}
+                  {guideError && <p className="error-text">{guideError}</p>}
+                </div>
                 {SLOTS.map((slot, i) => (
                   <div className="slot" key={slot.key}>
                     <span className="slot-label">{slot.label}</span>
@@ -199,6 +307,7 @@ export default function Home() {
                   <div className="data-row"><span>Drug</span><strong>{result.label.drugName ?? "—"}</strong></div>
                   <div className="data-row"><span>Maker</span><strong>{result.label.manufacturer ?? "—"}</strong></div>
                   <div className="data-row"><span>Batch</span><strong className="mono">{result.label.batchNumber ?? "—"}</strong></div>
+                  {result.label.barcode && (<div className="data-row"><span>Barcode</span><strong className="mono">{result.label.barcode}</strong></div>)}
                   <div className="data-row"><span>Expiry</span><strong className="mono">{result.label.expiryDate ?? "—"}</strong></div>
                   {result.perPhoto && (
                     <>
@@ -213,10 +322,9 @@ export default function Home() {
                   <div className="voice-row">
                     <label htmlFor="voice-lang">Listen in:</label>
                     <select id="voice-lang" value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)}>
-                      <option value="en">English</option>
-                      <option value="ur">Urdu</option>
-                      <option value="snd">Sindhi</option>
-                      <option value="pan">Punjabi</option>
+                      {Object.entries(VOICE_LANGS).map(([code, cfg]) => (
+                        <option key={code} value={code}>{cfg.label}</option>
+                      ))}
                     </select>
                     {!playing ? (
                       <button className="btn btn-secondary" onClick={listen} disabled={speakBusy}>
@@ -228,6 +336,13 @@ export default function Home() {
                   </div>
                   <p className="small">Written result stays in English. Only the spoken result changes language.</p>
                   {speakError && <p className="error-text">{speakError}</p>}
+                  <div className="voice-row">
+                    <button className="btn btn-secondary" onClick={saveToCabinet} disabled={!result.label.drugName || savedMsg !== ""}>
+                      {savedMsg || "Save to cabinet"}
+                    </button>
+                    {savedMsg && <a className="btn btn-ghost" href="/cabinet">Open cabinet →</a>}
+                  </div>
+                  <p className="small">Saved only on your device, only when you tap. Nothing is stored on a server.</p>
                   <div className="disclaimer-note">{result.disclaimer}</div>
                 </section>
               )}
@@ -333,7 +448,7 @@ export default function Home() {
             <div className="step">
               <div className="step-num">03</div>
               <h3 style={{ marginTop: 8 }}>Checked, then explained</h3>
-              <p className="small muted">The reading is matched against the list, the maker is compared, and the expiry is checked. Every reason is listed in plain words.</p>
+              <p className="small muted">The reading is matched against the list, the maker is compared, and the expiry is checked. The barcode label is cross-checked against the printed name. Every reason is listed in plain words.</p>
             </div>
           </div>
         </div>
@@ -393,7 +508,9 @@ export default function Home() {
             <div className="feature"><div className="feature-tile">3</div><h3>Multi-photo scan</h3><p className="small muted">Front, strip and full pack merge into one verdict. A conflict between photos drops GREEN to AMBER, never hides a risk.</p></div>
             <div className="feature"><div className="feature-tile">50</div><h3>Fresh Pakistan list</h3><p className="small muted">50 common Pakistani medicines, written fresh for this hackathon. A maker is shown only when it is confident.</p></div>
             <div className="feature"><div className="feature-tile">✓</div><h3>Explainable verdicts</h3><p className="small muted">You see exactly why a pack passed or failed, in plain words, plus the exact label reading and per-photo readings.</p></div>
-            <div className="feature"><div className="feature-tile">4</div><h3>Listen in 4 languages</h3><p className="small muted">Tap Listen to hear the verdict in English, Urdu, Sindhi or Punjabi. The written result always stays in English.</p></div>
+            <div className="feature"><div className="feature-tile">50</div><h3>Listen in 50 languages</h3><p className="small muted">Tap Listen to hear the verdict in 50 languages, or start the voice guide during your scan. The written result always stays in English.</p></div>
+            <div className="feature"><div className="feature-tile">B</div><h3>Barcode cross-check</h3><p className="small muted">If the barcode label names a different medicine than the front of the pack, the verdict drops to AMBER. An unreadable barcode never penalises a pack.</p></div>
+            <div className="feature"><div className="feature-tile">C</div><h3>Family cabinet</h3><p className="small muted">Save a scanned medicine to your on-device cabinet and see expiry alerts when you open it. Nothing is stored on a server.</p></div>
             <div className="feature"><div className="feature-tile">!</div><h3>Screening only</h3><p className="small muted">This checks authenticity signs, it never gives dosage, usage or treatment advice, and never diagnoses.</p></div>
             <div className="feature"><div className="feature-tile">P</div><h3>Private by design</h3><p className="small muted">Scans are not stored on a server. Photos go to the vision model for reading, and the verdict is shown to you alone.</p></div>
           </div>

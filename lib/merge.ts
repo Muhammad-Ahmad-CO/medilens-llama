@@ -93,6 +93,8 @@ export function mergeLabels(labels: Label[]): MergedLabel {
     manufacturer: first(labels.map((l) => l.manufacturer)),
     batchNumber: first(labels.map((l) => l.batchNumber)),
     expiryDate: first(labels.map((l) => l.expiryDate)),
+    barcode: first(labels.map((l) => l.barcode)),
+    barcodeProduct: first(labels.map((l) => l.barcodeProduct)),
     confidence: 0.5,
   };
   // Only photos that contributed a field count toward confidence.
@@ -101,7 +103,9 @@ export function mergeLabels(labels: Label[]): MergedLabel {
       (l.drugName && l.drugName === merged.drugName) ||
       (l.manufacturer && l.manufacturer === merged.manufacturer) ||
       (l.batchNumber && l.batchNumber === merged.batchNumber) ||
-      (l.expiryDate && l.expiryDate === merged.expiryDate)
+      (l.expiryDate && l.expiryDate === merged.expiryDate) ||
+      (l.barcode && l.barcode === merged.barcode) ||
+      (l.barcodeProduct && l.barcodeProduct === merged.barcodeProduct)
   );
   if (contributing.length > 0) {
     merged.confidence = Math.min(...contributing.map((l) => l.confidence));

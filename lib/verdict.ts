@@ -13,6 +13,12 @@ export interface Label {
   batchNumber: string | null;
   expiryDate: string | null; // raw text as printed, e.g. "08/27"
   confidence: number; // 0..1, how clearly the label was read
+  // Feature 1 (barcode cross-check): digits printed under the barcode,
+  // if readable, else null. Never guessed.
+  barcode: string | null;
+  // Feature 1: a product name printed on or next to the barcode label,
+  // if one is visible, else null. Never guessed.
+  barcodeProduct: string | null;
 }
 
 export interface DrugMatch {

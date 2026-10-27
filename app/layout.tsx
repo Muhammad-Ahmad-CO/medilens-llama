@@ -22,10 +22,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </span>
             </a>
             <nav>
-              <a href="#scanner">Scan</a>
-              <a href="#how">How it works</a>
-              <a href="#verdicts">Verdicts</a>
-              <a className="btn btn-primary" href="#scanner" style={{ padding: "9px 16px" }}>Scan a medicine</a>
+              <a href="/#scanner">Scan</a>
+              <a href="/#how">How it works</a>
+              <a href="/#verdicts">Verdicts</a>
+              <a href="/cabinet">Cabinet</a>
+              <a className="btn btn-primary" href="/#scanner" style={{ padding: "9px 16px" }}>Scan a medicine</a>
             </nav>
           </div>
         </header>

@@ -96,3 +96,55 @@ META_API_KEY=... node scripts/test-api.mjs
 ## Submission
 Public repo + live link + 3-minute demo video showing ONLY this hackathon build.
 Submission deadline: 4 Nov 2026, 9 PM ET = 5 Nov 2026, 7:00 AM PKT, via the Cerebral Valley platform.
+
+## New features (Part 2 expansion, hackathon build)
+
+Feature 1 — Barcode vs Text Cross-Check: the vision prompt also reads the
+digits printed under the barcode (`barcode`) and any product name printed
+on or next to the barcode label (`barcodeProduct`). The scan route
+compares the barcode name against the front-of-pack name: if the barcode
+name resolves to a DIFFERENT known drug, the verdict drops GREEN to AMBER
+with the reason "Barcode does not match the printed medicine name."
+An unreadable or absent barcode never changes the verdict, and a RED
+verdict is never changed by a barcode mismatch. The barcode value is
+shown in the result when it was read. Honest limit: a bare barcode
+number cannot be mapped to a medicine name — there is no GTIN registry
+in this repo, and none was invented — so a mismatch fires only when the
+barcode label itself carries a different product name.
+
+Feature 2 — Voice-Guided Scan Journey + 50-Language Voice: the scanner
+card has a "Start voice guide" button (tap-only, never autoplay) that
+speaks, in the selected guide language, "Show the front of the pack",
+"Now show the side with batch and expiry", "Now show the full pack and
+seal", then the verdict on tap ("Hear guide verdict"). If the scan
+confidence is below 0.6, the verdict speech is prefixed with "Photo is
+blurry, please retake." — low confidence is the honest trigger, because
+a separate blur detector is out of scope this round. Listen and guide
+share the same 50-language list (English, Urdu, Sindhi, Punjabi, Roman
+Urdu (testing), Arabic, French, Spanish, German, Italian, Portuguese,
+Russian, Mandarin Chinese, Japanese, Korean, Hindi, Bengali, Tamil,
+Telugu, Marathi, Gujarati, Malayalam, Kannada, Nepali, Sinhala, Thai,
+Vietnamese, Indonesian, Malay, Turkish, Persian, Pashto, Balochi,
+Saraiki, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Ukrainian,
+Czech, Romanian, Greek, Hebrew, Hungarian, Swahili, Hausa, Amharic,
+Somali) on the same free Meta stack (NLLB + MMS-TTS via HF Inference
+API). Written site and verdict always stay English. 500-char cap and
+first-2-reasons rule still apply. If a language model is missing (404)
+or fails, /api/speak reports that exact error — never fake audio, never
+a silent fallback to English. Rare language codes (Balochi, Saraiki,
+Pashto, Persian, Malay, Norwegian, Mandarin) are best-effort ISO codes
+and are NOT live-verified until a phone test passes.
+
+Feature 3 — Family Medicine Cabinet + Expiry Alerts: after a scan, "Save
+to cabinet" (tap only, never auto-save) stores name, batch, expiry and
+scan date in browser localStorage only — no server storage, no Supabase.
+The /cabinet page lists saved medicines, flags expired medicines RED
+and medicines expiring within 30 days as "Expiring soon". No push
+notifications. Scans are still never stored server-side.
+
+Not built in this round (per plan): hotspot map, pack-defect check,
+photo-quality check, tamper forensics, shareable verdict card.
+
+Live vision + voice tests still pending Vercel env vars (META_API_KEY
+or BASETEN_API_KEY, HF_TOKEN) and a phone test — the code above is
+build-verified, not live-verified.

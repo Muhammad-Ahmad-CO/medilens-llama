@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     return err(400, "BAD_TEXT", "Send a short verdict text (1 to 500 characters).");
   }
   if (!isVoiceLang(lang)) {
-    return err(400, "BAD_LANG", "Voice language must be en, ur, snd or pan.");
+    return err(400, "BAD_LANG", "Voice language must be one of the 50 supported language codes.");
   }
 
   const token = process.env.HF_TOKEN;

@@ -161,7 +161,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   .tablet { animation: none !important; }
 }
 
-/* ---------- Richer homepage (v2): photos, deep band, feed, index ---------- */
+/* ---------- New features (Part 2 expansion): voice guide + cabinet ---------- */
+.guide-box { background: var(--accent-tint); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.flag { display: inline-block; font-weight: 600; font-size: 0.85rem; padding: 4px 10px; border-radius: 999px; border: 1px solid; }
+.flag-red { background: var(--red-tint); border-color: var(--red-border); color: var(--red); }
+.flag-amber { background: var(--amber-tint); border-color: var(--amber-border); color: var(--amber); }
 .photo-strip { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 16px; }
 /* Grid/flex children must be allowed to shrink, otherwise an image or a
    long label can force its track wider than the page and push content
