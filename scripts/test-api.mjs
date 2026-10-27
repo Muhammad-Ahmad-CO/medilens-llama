@@ -15,7 +15,7 @@ if (!cfg.key) {
   process.exit(2);
 }
 const photoPath = process.argv[2];
-const content = [{ type: "text", text: photoPath ? "Read this medicine pack. Return ONLY JSON: {\"drugName\":null,\"manufacturer\":null,\"batchNumber\":null,\"expiryDate\":null,\"confidence\":0}" : "Reply with exactly: API-OK" }];
+const content = [{ type: "text", text: photoPath ? "Read this medicine pack. Return ONLY JSON: {\"drugName\":null,\"manufacturer\":null,\"batchNumber\":null,\"expiryDate\":null,\"confidence\":0,\"barcode\":null,\"barcodeProduct\":null}" : "Reply with exactly: API-OK" }];
 if (photoPath) content.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${fs.readFileSync(photoPath).toString("base64")}` } });
 
 const res = await fetch(`${cfg.base}/chat/completions`, {
