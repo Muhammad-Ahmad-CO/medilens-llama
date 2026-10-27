@@ -148,3 +148,21 @@ photo-quality check, tamper forensics, shareable verdict card.
 Live vision + voice tests still pending Vercel env vars (META_API_KEY
 or BASETEN_API_KEY, HF_TOKEN) and a phone test — the code above is
 build-verified, not live-verified.
+
+## Design v3 (cinematic hero, hackathon build)
+
+Same teal-green identity, denser and more cinematic: the hero is a dark
+deep-green band with a large display headline, a real pharmacy photo
+with a CSS-only animated scan frame and beam (labelled "Demo animation
+— not a real scan result", never a fake verdict), and the white scanner
+card floating on it. The verdict showcase is interactive (tap
+GREEN/AMBER/RED to see that level's example), the medicine index has a
+live search box (name or maker, with a shown-count), the crisis band
+has a real lab photo at low opacity behind it for depth, and cards lift
+slightly on hover. All motion stops under prefers-reduced-motion, and
+everything is CSS/JS that works on older browsers (no WebGL, no AVIF).
+Design files only (app/page.tsx, app/globals.css); scan, verdict, voice
+and cabinet logic are untouched by v3. Recheck note: the dark hero
+needed explicit dark-ink overrides for the light scanner/verdict/guide
+cards inside it, otherwise white text would have been invisible on
+white cards — fixed and verified at 1366px, 900px and 390px.

@@ -16,8 +16,13 @@ const FEED: { level: "green" | "amber" | "red"; drug: string; place: string; tim
   { level: "amber", drug: "Arinac — batch unconfirmed", place: "Peshawar", time: "48 min ago" },
 ];
 
-// Item 1: 3 labelled photo slots. Each slot is optional, at least one
-// photo is required. Slot order is the merge order: front, strip, full pack.
+// Design v3: interactive verdict examples (tap a level to see its
+// example). These are labelled examples on the page, not live results.
+const VERDICT_EXAMPLES = [
+  { level: "green", pill: "Likely genuine", title: "GREEN — Likely genuine", text: "Drug found in the list, maker matches, expiry is in the future. All critical checks passed.", reasons: ["Matched in the drug list", "Maker matches the record", "Expiry date is valid"] },
+  { level: "amber", pill: "Be careful", title: "AMBER — Be careful", text: "Maker on the pack does not match the record, or the batch or expiry could not be read. Check before use.", reasons: ["Maker mismatch, or batch/expiry unreadable", "Barcode label names a different medicine", "Label reading was uncertain"] },
+  { level: "red", pill: "High risk", title: "RED — High risk", text: "Pack is expired, the drug is not in the list, or no drug name could be read. Do not use.", reasons: ["Expired pack", "Drug not found in the list", "No drug name could be read"] },
+] as const;
 const SLOTS = [
   { key: "front", label: "1. Front of pack — drug name and maker", short: "Front" },
   { key: "strip", label: "2. Batch / expiry strip — batch and expiry", short: "Batch / expiry strip" },
@@ -44,6 +49,14 @@ export default function Home() {
   const [guideError, setGuideError] = useState("");
   // Cabinet (Feature 3): saved only on tap, never automatically.
   const [savedMsg, setSavedMsg] = useState("");
+  // Design v3: interactive verdict tab + medicine index search.
+  const [activeVerdict, setActiveVerdict] = useState<"green" | "amber" | "red">("green");
+  const [indexQuery, setIndexQuery] = useState("");
+  const filteredDrugs = DRUG_LIST.filter((d) => {
+    const q = indexQuery.trim().toLowerCase();
+    if (!q) return true;
+    return d.name.toLowerCase().includes(q) || (d.manufacturer || "").toLowerCase().includes(q);
+  });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string>("");
 
@@ -201,8 +214,8 @@ export default function Home() {
 
   return (
     <>
-      {/* ---------- Hero + scanner ---------- */}
-      <section className="hero">
+      {/* ---------- Hero + scanner (v3: dark cinematic band) ---------- */}
+      <section className="hero hero-dark">
         <div className="wrap">
           <div className="hero-grid">
             <div>
@@ -220,6 +233,13 @@ export default function Home() {
               <p className="small muted" style={{ marginTop: 20 }}>
                 Screening only, not medical advice. A GREEN result does not prove a pack is genuine.
               </p>
+              <figure className="scan-demo">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/img/hero-pharmacy.jpg" alt="Pharmacy shelves stocked with medicine packs" loading="lazy" />
+                <span className="scan-frame" aria-hidden="true" />
+                <span className="scan-beam" aria-hidden="true" />
+                <figcaption>Demo animation — how the scan reads a pack. Not a real scan result.</figcaption>
+              </figure>
             </div>
 
             <div id="scanner">
@@ -381,10 +401,13 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ---------- Crisis band ---------- */}
+      {/* ---------- Crisis band (v3: real photo depth behind the band) ---------- */}
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="wrap">
           <div className="crisis">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="crisis-bg" src="/img/lab.jpg" alt="" aria-hidden="true" loading="lazy" />
+            <div className="crisis-inner">
             <p className="eyebrow">Why this matters</p>
             <h2>Fake medicine is not a small problem. It is a global one.</h2>
             <p>
@@ -406,6 +429,7 @@ export default function Home() {
                 <div className="pbar"><div className="t"><span>Unknown medicine, no database match</span><b>8 / 100</b></div><div className="track"><div className="fill red" style={{ width: "8%" }} /></div></div>
                 <p className="small" style={{ color: "#cfe3dc", margin: "4px 0 0" }}>Every failed check lowers the score. One hard failure — an expired date or no database match — is enough for a high-risk verdict.</p>
               </div>
+            </div>
             </div>
           </div>
         </div>
@@ -454,29 +478,35 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ---------- Verdict showcase ---------- */}
+      {/* ---------- Verdict showcase (v3: interactive tabs) ---------- */}
       <section className="section" id="verdicts">
         <div className="wrap">
           <p className="eyebrow">Verdicts</p>
           <h2>Every verdict explains itself</h2>
-          <p className="section-lead">Examples of what each level means. A real scan shows its own reasons, not these examples.</p>
-          <div className="verdict-rows">
-            <div className="vrow vrow-green">
-              <div><span className="pill">Likely genuine</span></div>
-              <div>Drug found in the list, maker matches, expiry is in the future. All critical checks passed.</div>
-              <div className="mono muted">GREEN</div>
-            </div>
-            <div className="vrow vrow-amber">
-              <div><span className="pill">Be careful</span></div>
-              <div>Maker on the pack does not match the record, or the batch or expiry could not be read. Check before use.</div>
-              <div className="mono muted">AMBER</div>
-            </div>
-            <div className="vrow vrow-red">
-              <div><span className="pill">High risk</span></div>
-              <div>Pack is expired, the drug is not in the list, or no drug name could be read. Do not use.</div>
-              <div className="mono muted">RED</div>
-            </div>
+          <p className="section-lead">Tap a level to see an example of what it means. A real scan shows its own reasons, not these examples.</p>
+          <div className="tab-row" role="tablist" aria-label="Verdict examples">
+            {VERDICT_EXAMPLES.map((v) => (
+              <button
+                key={v.level}
+                type="button"
+                role="tab"
+                aria-selected={activeVerdict === v.level}
+                className={`tab-btn tab-${v.level}${activeVerdict === v.level ? " tab-active" : ""}`}
+                onClick={() => setActiveVerdict(v.level)}
+              >
+                {v.pill}
+              </button>
+            ))}
           </div>
+          {VERDICT_EXAMPLES.filter((v) => v.level === activeVerdict).map((v) => (
+            <div key={v.level} className={`verdict-card verdict-${v.level}`} style={{ marginTop: 0 }}>
+              <h2>{v.title}</h2>
+              <p className="muted" style={{ margin: "8px 0 0" }}>{v.text}</p>
+              <ul className="reason-list" style={{ marginTop: 12 }}>
+                {v.reasons.map((r) => <li key={r}>{r}</li>)}
+              </ul>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -486,15 +516,28 @@ export default function Home() {
           <p className="eyebrow">Medicine index</p>
           <h2>The list, in the open</h2>
           <p className="section-lead">Every medicine below is checked instantly against this list. A maker is shown only when it is confident; a blank maker means no maker check, never a mismatch.</p>
+          <div style={{ marginBottom: 16 }}>
+            <label className="small" htmlFor="index-search" style={{ display: "block", fontWeight: 600, marginBottom: 6 }}>Search medicines</label>
+            <input
+              id="index-search"
+              type="search"
+              value={indexQuery}
+              onChange={(e) => setIndexQuery(e.target.value)}
+              placeholder="Type a name, e.g. Panadol"
+              style={{ width: "100%", padding: "12px 14px", border: "1px solid var(--border-strong)", borderRadius: 10, background: "#fff" }}
+            />
+            <p className="small muted" style={{ margin: "8px 0 0" }}>{filteredDrugs.length} of {DRUG_LIST.length} shown.</p>
+          </div>
           <div className="med-index">
             <div className="med-head"><span>Medicine</span><span>Manufacturer</span></div>
-            {DRUG_LIST.map((d) => (
+            {filteredDrugs.map((d) => (
               <div className="med-row" key={d.name}>
                 <strong>{d.name}</strong>
                 <span className="mfr">{d.manufacturer ?? "—"}</span>
               </div>
             ))}
           </div>
+          {filteredDrugs.length === 0 && <p className="muted" style={{ marginTop: 12 }}>No medicine matches your search.</p>}
           <p className="small muted" style={{ marginTop: 12 }}>{DRUG_LIST.length} medicines in the list · no controlled, narcotic or sedative medicines included.</p>
         </div>
       </section>

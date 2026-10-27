@@ -177,7 +177,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .photo-strip figure { margin: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #fff; }
 .photo-strip img { display: block; width: 100%; height: 220px; object-fit: cover; }
 .photo-strip figcaption { padding: 12px 14px; font-size: 0.85rem; color: var(--ink-2); }
-.crisis { background: var(--deep, #0b1f19); color: #fff; border-radius: var(--radius); padding: 40px; overflow: hidden; }
+.crisis { position: relative; background: var(--deep, #0b1f19); color: #fff; border-radius: var(--radius); padding: 0; overflow: hidden; }
+.crisis-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.28; }
+.crisis-inner { position: relative; padding: 40px; }
 .crisis .eyebrow { color: #7fd4bd; }
 .crisis h2 { color: #fff; font-size: 1.6rem; }
 .crisis p { color: #cfe3dc; max-width: 640px; }
@@ -218,10 +220,53 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 @media (max-width: 800px) {
   .photo-strip { grid-template-columns: 1fr; }
   .photo-strip img { height: 200px; }
-  .crisis { padding: 24px; }
+  .crisis-inner { padding: 24px; }
   .crisis-grid { grid-template-columns: 1fr; }
   .big-stat { flex-direction: column; gap: 16px; }
   .topbar-in { gap: 8px; padding: 12px 14px; }
   .topbar nav a.btn-primary { white-space: normal; text-align: center; max-width: 118px; padding: 8px 12px; font-size: 0.85rem; }
   .feed-scroll { grid-template-columns: 1fr; }
 }
+
+/* ---------- Design v3: cinematic hero, scan demo, tabs, hover lift ---------- */
+.hero-dark { background: #0b1f19; color: #fff; }
+.hero-dark .eyebrow { color: #7fd4bd; }
+.hero-dark .lead { color: #cfe3dc; }
+.hero-dark .muted { color: #9db8ae; }
+.hero-dark .btn-ghost { color: #7fd4bd; }
+.hero-dark .scanner-card { box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.55); }
+.hero-dark .stats { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
+.hero-dark .stat { border-color: rgba(255, 255, 255, 0.14); }
+.hero-dark .stat span { color: #cfe3dc; }
+@media (min-width: 801px) {
+  .hero-dark h1 { font-size: 3.25rem; }
+}
+/* Animated scan demo in the hero. Pure CSS, demo only — it never
+   produces a verdict. Motion stops under prefers-reduced-motion. */
+.scan-demo { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.2); margin: 24px 0 0; }
+.scan-demo img { display: block; width: 100%; height: 220px; object-fit: cover; }
+.scan-frame { position: absolute; inset: 18px 24px; border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 10px; }
+.scan-beam { position: absolute; left: 24px; right: 24px; height: 3px; background: #34d399; box-shadow: 0 0 14px #34d399; animation: scan-beam-move 3.2s ease-in-out infinite; }
+@keyframes scan-beam-move { 0%, 100% { top: 10%; } 50% { top: 86%; } }
+.scan-demo figcaption { position: relative; background: rgba(11, 31, 25, 0.9); color: #cfe3dc; font-size: 0.82rem; padding: 10px 14px; }
+/* Interactive verdict tabs */
+.tab-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.tab-btn { padding: 10px 18px; border-radius: 999px; border: 1px solid var(--border-strong); background: #fff; font-weight: 600; cursor: pointer; }
+.tab-btn.tab-green.tab-active { background: var(--green-tint); border-color: var(--green-border); color: var(--green); }
+.tab-btn.tab-amber.tab-active { background: var(--amber-tint); border-color: var(--amber-border); color: var(--amber); }
+.tab-btn.tab-red.tab-active { background: var(--red-tint); border-color: var(--red-border); color: var(--red); }
+/* Hover lift on cards (transform only, no layout shift) */
+.step, .feature, .feed-item, .photo-strip figure { transition: transform 0.18s, box-shadow 0.18s; }
+.step:hover, .feature:hover, .feed-item:hover, .photo-strip figure:hover { transform: translateY(-3px); box-shadow: 0 12px 28px -12px rgba(11, 31, 25, 0.25); }
+@media (prefers-reduced-motion: reduce) {
+  .scan-beam { animation: none !important; }
+}
+
+/* v3 contrast fix: the hero is dark, but the scanner card, verdict card
+   and guide box inside it are LIGHT surfaces, so their text must stay
+   dark ink — otherwise white text on a white card would be invisible.
+   These rules are more specific than .hero-dark .muted, so they win
+   inside the light cards. */
+.hero-dark h1 { color: #fff; }
+.hero-dark .scanner-card, .hero-dark .verdict-card, .hero-dark .guide-box { color: var(--ink); }
+.hero-dark .scanner-card .muted, .hero-dark .guide-box .muted { color: var(--muted); }
