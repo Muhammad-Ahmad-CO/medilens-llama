@@ -47,7 +47,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .topbar-in { width: 100%; max-width: 1080px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; }
 .brand em { font-style: normal; color: var(--accent); }
-.brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; background: var(--accent); color: #fff; border-radius: 9px; font-weight: 800; font-size: 1rem; }
+/* Logo mark (replaces the old "M" tile): a lens holding a capsule, with a
+   verified check — scan, medicine, genuine. The mark itself is an SVG,
+   so the tile is now transparent and sized to the artwork. */
+.brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; flex: none; }
+.brand-mark svg { width: 42px; height: 42px; display: block; }
 /* Floating 3D tablets beside the brand name (user request, 2026-10-27):
    pure CSS pills, slightly smaller than the brand text, gentle float only.
    No image, no emoji. Motion stops under prefers-reduced-motion. */

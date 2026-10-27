@@ -166,3 +166,13 @@ and cabinet logic are untouched by v3. Recheck note: the dark hero
 needed explicit dark-ink overrides for the light scanner/verdict/guide
 cards inside it, otherwise white text would have been invisible on
 white cards — fixed and verified at 1366px, 900px and 390px.
+
+## Logo
+
+The "M" tile is replaced by a real logo mark (topbar, next to the name,
+plus the browser tab favicon): a teal lens ring holding a tilted
+capsule, with a verified check badge at the bottom-right — scan,
+medicine, genuine, in one mark. The artwork is `public/logo.svg`
+(also used as the favicon via metadata icons); the topbar renders the
+same shapes as inline SVG. The two floating 3D tablets beside the brand
+name are unchanged. No emoji, no stock icon.
