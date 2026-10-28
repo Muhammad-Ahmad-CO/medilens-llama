@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { VOICE_LANGS, isVoiceLang } from "@/lib/voice";
 import { synthesizeEdge } from "@/lib/edge-v2";
+import { ttsF53 } from "@/lib/edge-f53";
 
 // POST { text, lang } -> audio bytes for tap-only playback.
 // Free server stack, no key, no card:
@@ -75,6 +76,8 @@ export async function POST(req: NextRequest) {
   }
 
   // 2) Speak the (translated) text with the Edge voice for this locale.
+  // First the mirrored-Python flow (3 attempts), then the proven f53 flow
+  // with the v2 token as a final attempt before reporting failure.
   let audio: Buffer;
   try {
     audio = await withTimeout(
@@ -83,29 +86,30 @@ export async function POST(req: NextRequest) {
       "VOICE_TIMEOUT",
       "Voice service timed out. Try again.",
     );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "";
-    // Diagnostic: is the Edge service itself reachable from this server?
-    // If the voices list loads but synthesis fails, the problem is the
-    // synthesis messages; if the list is also blocked, the service is
-    // refusing this server's network outright.
-    let listNote = "";
+  } catch (e1) {
     try {
-      const lr = await fetch(
-        "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4",
-        { signal: AbortSignal.timeout(10000), headers: { "User-Agent": "Mozilla/5.0" } },
+      audio = await withTimeout(
+        ttsF53(spoken, cfg.voice),
+        50000,
+        "VOICE_TIMEOUT",
+        "Voice service timed out. Try again.",
       );
-      listNote = ` voices-list: HTTP ${lr.status}.`;
-    } catch {
-      listNote = " voices-list: unreachable.";
+    } catch (e2) {
+      const msg = e2 instanceof Error ? e2.message : "";
+      const first = e1 instanceof Error ? e1.message : "";
+      // Diagnostic: is the Edge service itself reachable from this server?
+      let listNote = "";
+      try {
+        const lr = await fetch(
+          "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4",
+          { signal: AbortSignal.timeout(10000), headers: { "User-Agent": "Mozilla/5.0" } },
+        );
+        listNote = ` voices-list: HTTP ${lr.status}.`;
+      } catch {
+        listNote = " voices-list: unreachable.";
+      }
+      return err(502, "VOICE_FAILED", (`Voice failed for ${cfg.voice}: f53 flow: ${msg.slice(0, 120)} | python flow: ${first.slice(0, 200)}` + listNote).slice(0, 500));
     }
-    if (msg.startsWith("Voice failed (")) {
-      return err(502, "VOICE_FAILED", (msg + listNote).slice(0, 400));
-    }
-    if (/Unexpected server response: (401|403)/.test(msg)) {
-      return err(502, "VOICE_AUTH_FAILED", `Edge voice service rejected the request for voice ${cfg.voice} on both hosts. Try again later.`);
-    }
-    return err(502, "VOICE_FAILED", msg ? `Voice failed for ${cfg.voice}: ${msg.slice(0, 200)}` : `Voice failed for ${cfg.voice}. Try again.`);
   }
   if (!audio || audio.length === 0) {
     return err(502, "VOICE_FAILED", `Voice returned empty audio for ${cfg.voice}. Try again.`);
