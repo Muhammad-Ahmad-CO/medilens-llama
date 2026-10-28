@@ -85,6 +85,9 @@ export async function POST(req: NextRequest) {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
+    if (msg.startsWith("Voice failed (")) {
+      return err(502, "VOICE_FAILED", msg.slice(0, 300));
+    }
     if (/Unexpected server response: (401|403)/.test(msg)) {
       return err(502, "VOICE_AUTH_FAILED", `Edge voice service rejected the request for voice ${cfg.voice} on both hosts. Try again later.`);
     }

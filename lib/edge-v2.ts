@@ -115,20 +115,19 @@ export async function synthesizeEdge(text: string, voice: string): Promise<Buffe
   const connectionId = randomUUID().replaceAll("-", "");
   const token = secMsGec();
   const urls = [
-    `wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
+    // New host: plain ws:// (the reference client uses ws, not wss, here;
+    // wss:// answered the upgrade with plain HTTP 200).
+    `ws://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
     `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
   ];
-  let lastErr: unknown = null;
+  const attempts: string[] = [];
   for (let i = 0; i < urls.length; i++) {
     try {
       return await synthOnce(text, voice, urls[i], 30000);
     } catch (e) {
-      lastErr = e;
-      const msg = e instanceof Error ? e.message : "";
-      const handshake = /Unexpected server response: (401|403)/.test(msg);
-      if (!handshake || i === urls.length - 1) throw e;
-      // Otherwise fall through to the next host.
+      const msg = e instanceof Error ? e.message : "unknown error";
+      attempts.push(`${i === 0 ? "new host" : "old host"}: ${msg.slice(0, 80)}`);
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error("Voice failed.");
+  throw new Error(`Voice failed (${attempts.join("; ")}).`);
 }
