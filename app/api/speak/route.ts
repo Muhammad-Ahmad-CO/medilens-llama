@@ -6,7 +6,12 @@ import { VOICE_LANGS, NLLB_MODEL, isVoiceLang } from "@/lib/voice";
 // on the server, so the written page never changes language.
 // Limits: 10 listens/minute per IP, text max 500 chars (short demo verdicts).
 const hits = new Map<string, { count: number; reset: number }>();
-const HF_API = "https://api-inference.huggingface.co/models";
+// HF Inference Providers router. The legacy api-inference.huggingface.co
+// endpoint was fully decommissioned (late 2025) — calls to it now fail
+// before any HTTP response, which surfaced as the misleading
+// "check your connection" error. The router is the documented replacement,
+// and the token needs the "Make calls to Inference Providers" permission.
+const HF_API = "https://router.huggingface.co/hf-inference/models";
 
 function err(status: number, code: string, message: string) {
   return NextResponse.json({ error: code, message }, { status });
@@ -76,13 +81,18 @@ export async function POST(req: NextRequest) {
         parameters: { src_lang: "eng_Latn", tgt_lang: cfg.nllbCode },
       });
     } catch {
-      return err(502, "TRANSLATION_FAILED", "Translation request failed. Check your connection and try again.");
+      // The fetch itself failed (service unreachable), not the user's
+      // connection — this runs on the server, not on the phone.
+      return err(502, "TRANSLATION_FAILED", "Translation service could not be reached. Try again.");
     }
     if (!tr.ok) {
       const detail = await readHfError(tr);
       if (tr.status === 503) return err(503, "MODEL_LOADING", detail);
       if (tr.status === 401 || tr.status === 403) {
         return err(503, "HF_AUTH_FAILED", `Hugging Face rejected the token (${detail}). If you made a Read token, try a fine-grained token with "Make calls to Inference Providers" enabled instead.`);
+      }
+      if (tr.status === 404) {
+        return err(502, "TRANSLATION_MODEL_NOT_FOUND", `Translation model ${NLLB_MODEL} is not served by Hugging Face Inference Providers. Try English for now.`);
       }
       return err(502, "TRANSLATION_FAILED", detail);
     }
@@ -103,7 +113,8 @@ export async function POST(req: NextRequest) {
   try {
     tts = await hfPost(token, cfg.ttsModel, { inputs: spoken });
   } catch {
-    return err(502, "VOICE_FAILED", "Voice request failed. Check your connection and try again.");
+    // Server-to-service failure, not the user's connection.
+    return err(502, "VOICE_FAILED", "Voice service could not be reached. Try again.");
   }
   if (!tts.ok) {
     const detail = await readHfError(tts);
