@@ -85,8 +85,22 @@ export async function POST(req: NextRequest) {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
+    // Diagnostic: is the Edge service itself reachable from this server?
+    // If the voices list loads but synthesis fails, the problem is the
+    // synthesis messages; if the list is also blocked, the service is
+    // refusing this server's network outright.
+    let listNote = "";
+    try {
+      const lr = await fetch(
+        "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4",
+        { signal: AbortSignal.timeout(10000), headers: { "User-Agent": "Mozilla/5.0" } },
+      );
+      listNote = ` voices-list: HTTP ${lr.status}.`;
+    } catch {
+      listNote = " voices-list: unreachable.";
+    }
     if (msg.startsWith("Voice failed (")) {
-      return err(502, "VOICE_FAILED", msg.slice(0, 300));
+      return err(502, "VOICE_FAILED", (msg + listNote).slice(0, 400));
     }
     if (/Unexpected server response: (401|403)/.test(msg)) {
       return err(502, "VOICE_AUTH_FAILED", `Edge voice service rejected the request for voice ${cfg.voice} on both hosts. Try again later.`);
