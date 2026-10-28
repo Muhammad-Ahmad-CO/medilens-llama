@@ -63,14 +63,15 @@ function dateToString(): string {
   return `${days[d.getUTCDay()]} ${months[d.getUTCMonth()]} ${pad(d.getUTCDate())} ${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} GMT+0000 (Coordinated Universal Time)`;
 }
 
-function synthOnce(text: string, voice: string, url: string, ua: string, timeoutMs: number): Promise<Buffer> {
+function synthOnce(text: string, voice: string, url: string, ua: string, timeoutMs: number, useProtocol = true): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const requestId = randomUUID().replaceAll("-", "");
     const timestamp = dateToString();
     const chunks: Buffer[] = [];
     let done = false;
+    let opened = false;
     const timer = setTimeout(() => {
-      if (!done) { done = true; try { ws.close(); } catch { /* noop */ } reject(new Error("Voice service timed out.")); }
+      if (!done) { done = true; try { ws.close(); } catch { /* noop */ } reject(new Error(opened ? "Connected but no audio arrived in time." : "Handshake timed out (connection never opened).")); }
     }, timeoutMs);
     const finish = (err?: Error, buf?: Buffer) => {
       if (done) return;
@@ -87,7 +88,7 @@ function synthOnce(text: string, voice: string, url: string, ua: string, timeout
     // permessage-deflate negotiation.
     const muid = randomBytes(16).toString("hex").toUpperCase();
     const ws = new WebSocket(url, {
-      protocol: "synthesize",
+      ...(useProtocol ? { protocol: "synthesize" } : {}),
       perMessageDeflate: { threshold: 0 },
       headers: {
         "User-Agent": ua,
@@ -100,6 +101,7 @@ function synthOnce(text: string, voice: string, url: string, ua: string, timeout
       },
     });
     ws.on("open", () => {
+      opened = true;
       ws.send(
         `X-Timestamp:${timestamp}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` +
           `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}\r\n`,
@@ -107,9 +109,14 @@ function synthOnce(text: string, voice: string, url: string, ua: string, timeout
       const ssml =
         `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">` +
         `<voice name="${voice}"><prosody pitch="+0Hz" rate="+0%" volume="+0%">${escapeXml(text)}</prosody></voice></speak>`;
-      ws.send(
-        `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}Z\r\nPath:ssml\r\n\r\n${ssml}`,
-      );
+      // Send SSML on a later tick, like the Python client's awaited sends.
+      setTimeout(() => {
+        if (!done) {
+          ws.send(
+            `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}Z\r\nPath:ssml\r\n\r\n${ssml}`,
+          );
+        }
+      }, 150);
     });
     ws.on("message", (data: Buffer | string) => {
       if (typeof data === "string") {
@@ -139,27 +146,33 @@ export async function synthesizeEdge(text: string, voice: string): Promise<Buffe
   const connectionId = randomUUID().replaceAll("-", "");
   const token = secMsGec();
   const tokenV2 = secMsGecV2();
-  const attempts: { label: string; url: string; ua: string }[] = [
+  const attempts: { label: string; url: string; ua: string; protocol: boolean; timeout: number }[] = [
     {
       label: "new host",
-      url: `ws://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
+      url: `wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
       ua: UA,
+      protocol: true,
+      timeout: 30000,
     },
     {
       label: "old host v1",
       url: `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
       ua: UA_143,
+      protocol: false,
+      timeout: 30000,
     },
     {
       label: "old host v2",
       url: `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${tokenV2}&Sec-MS-GEC-Version=2-143.0.3650.75&ConnectionId=${connectionId}`,
       ua: UA_143,
+      protocol: false,
+      timeout: 45000,
     },
   ];
   const errors: string[] = [];
   for (const a of attempts) {
     try {
-      return await synthOnce(text, voice, a.url, a.ua, 30000);
+      return await synthOnce(text, voice, a.url, a.ua, a.timeout, a.protocol);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown error";
       errors.push(`${a.label}: ${msg.slice(0, 80)}`);
