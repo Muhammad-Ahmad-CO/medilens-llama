@@ -1,16 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
+import { secMsGecV2 } from "./edge-token-v2";
 
 // Microsoft Edge neural voices, v2 route (free, no key, unofficial).
 // The old v1 host (speech.platform.bing.com) with the old client started
-// returning 403, so this uses the newer host that Edge itself now uses:
-//   wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1
-// with the same time-based SHA-256 Sec-MS-GEC token (adapted from the
-// public Edge client protocol; token = SHA256(windowsTicks + clientToken)).
-// If the new host also rejects the handshake, the caller retries the old
-// host once with the same token and a current version string — the two
-// attempts cover both the host-migration and the version-rotation causes
-// of the 403 without any key or card.
+// returning 403, so this tries, in order:
+//   1) new host (api.msedgeservices.com, ws) + v1-format SHA-256 token
+//   2) old host (wss) + v1-format token, current version string
+//   3) old host (wss) + CS64 v2 token (lib/edge-token-v2.ts, verified
+//      byte-exact against the public Python client for fixed timestamps)
+//      + version 2-143.0.3650.75 — the Python client's proven fix.
+// If all three fail, the route reports each attempt exactly.
 const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 const SEC_MS_GEC_VERSION = "1-155.0.4283.45";
 const UA =
@@ -114,20 +114,29 @@ function synthOnce(text: string, voice: string, url: string, timeoutMs: number):
 export async function synthesizeEdge(text: string, voice: string): Promise<Buffer> {
   const connectionId = randomUUID().replaceAll("-", "");
   const token = secMsGec();
-  const urls = [
-    // New host: plain ws:// (the reference client uses ws, not wss, here;
-    // wss:// answered the upgrade with plain HTTP 200).
-    `ws://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
-    `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
+  const tokenV2 = secMsGecV2();
+  const attempts: { label: string; url: string }[] = [
+    {
+      label: "new host",
+      url: `ws://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
+    },
+    {
+      label: "old host v1",
+      url: `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`,
+    },
+    {
+      label: "old host v2",
+      url: `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${tokenV2}&Sec-MS-GEC-Version=2-143.0.3650.75&ConnectionId=${connectionId}`,
+    },
   ];
-  const attempts: string[] = [];
-  for (let i = 0; i < urls.length; i++) {
+  const errors: string[] = [];
+  for (const a of attempts) {
     try {
-      return await synthOnce(text, voice, urls[i], 30000);
+      return await synthOnce(text, voice, a.url, 30000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown error";
-      attempts.push(`${i === 0 ? "new host" : "old host"}: ${msg.slice(0, 80)}`);
+      errors.push(`${a.label}: ${msg.slice(0, 80)}`);
     }
   }
-  throw new Error(`Voice failed (${attempts.join("; ")}).`);
+  throw new Error(`Voice failed (${errors.join("; ")}).`);
 }
