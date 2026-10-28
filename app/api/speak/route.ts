@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { VOICE_LANGS, isVoiceLang } from "@/lib/voice";
-import { tts as edgeTts } from "edge-tts/out/index.js";
+import { synthesizeEdge } from "@/lib/edge-v2";
 
 // POST { text, lang } -> audio bytes for tap-only playback.
 // Free server stack, no key, no card:
@@ -78,15 +78,15 @@ export async function POST(req: NextRequest) {
   let audio: Buffer;
   try {
     audio = await withTimeout(
-      edgeTts(spoken, { voice: cfg.voice }),
-      60000,
+      synthesizeEdge(spoken, cfg.voice),
+      65000,
       "VOICE_TIMEOUT",
       "Voice service timed out. Try again.",
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
-    if (msg.includes("403") || msg.includes("401")) {
-      return err(502, "VOICE_AUTH_FAILED", `Edge voice service rejected the request for voice ${cfg.voice}. Try again later.`);
+    if (/Unexpected server response: (401|403)/.test(msg)) {
+      return err(502, "VOICE_AUTH_FAILED", `Edge voice service rejected the request for voice ${cfg.voice} on both hosts. Try again later.`);
     }
     return err(502, "VOICE_FAILED", msg ? `Voice failed for ${cfg.voice}: ${msg.slice(0, 200)}` : `Voice failed for ${cfg.voice}. Try again.`);
   }
