@@ -46,32 +46,39 @@ Screening only. If in doubt, show the pack to a pharmacist.
   `https://inference.baseten.co/v1`. Baseten does not support JSON mode for this model, so the app
   parses JSON out of the reply text. If Plan B is used, the UI footer "Built with Muse Spark Open" applies.
 
-## Voice (free Meta models, no card, no endpoint)
+## Voice (phone's own voice + free translation, no key, no card)
 Beside every verdict there is a Listen button with a language choice.
 The written site and written verdict always stay in English; changing
 the voice language only changes the spoken verdict. Playback is
 tap-only, never autoplay.
 
-How it works (server-side `/api/speak`, no key, no card):
-- Translation: MyMemory (free, no key) English -> target language.
-- Voice: Microsoft Edge neural voices via the `edge-tts` npm package
-  (free, no key, unofficial service). The dropdown lists every Edge
-  locale with a voice (140 entries, one voice per locale, female
-  preferred) — e.g. English (United States), Urdu (Pakistan),
-  Punjabi (India, Gurmukhi side, as before).
-- Limits: 10 listens/minute per IP, spoken text capped at 500 characters,
-  short demo verdicts only.
-- Honest limits: Edge has NO Sindhi voice, so Sindhi is not in the voice
-  list — the old HF MMS/NLLB stack is retired (HF decommissioned its
-  legacy Inference API in late 2025, and no provider serves MMS-TTS or
-  NLLB anymore; the router returns "Model not supported by provider
-  hf-inference"). If MyMemory does not support a listed locale, the
-  button shows that exact error instead of fake audio. Edge is
-  unofficial, so the phone test is the proof for each language.
-- Superseded plan: the earlier SeamlessM4T v2 Inference Endpoint plan was
-  cancelled — it needed a card/billing. This stack needs no endpoint and
-  no token for voice. (HF_TOKEN in env is now unused by voice; scan keys
-  are separate — see Env below.)
+How it works:
+- Translation: MyMemory (free, no key) English -> target language,
+  on the server in `/api/translate` (verified live in every test).
+- Speech: the PHONE's own voice (Web Speech API, `lib/phone-voice.ts`).
+  No server audio, no key, no card, nothing to configure. The dropdown
+  marks locales the phone has no voice for, and tapping Listen for one
+  shows that exact message instead of playing another language's audio.
+- Limits: 10 translations/minute per IP, spoken text capped at 500
+  characters, short demo verdicts only.
+- Honest limits: whether a language speaks depends on the PHONE, not
+  this list — Sindhi counts as working only if the user's phone itself
+  has a Sindhi voice, and Roman Urdu stays labelled "(testing)" and is
+  spoken by the Urdu voice. If MyMemory does not support a listed
+  locale, the button shows that exact error instead of fake audio.
+- Retired 2026-10-28: server voice via Microsoft Edge. Edge synthesis
+  was tried from this Vercel deployment in 7 configurations (npm client
+  + v1 token, CS64 v2 token, full Python-client mirror, proven f53 JS
+  flow) and never returned audio — 403, no WebSocket upgrade, or a
+  close with no audio — while the voices-list check returned HTTP 200.
+  The old `/api/speak` route is now a 410 stub, and the Edge attempt
+  files (`lib/edge-v2.ts`, `lib/edge-token-v2.ts`, `lib/edge-f53.ts`)
+  are unused legacy. The earlier HF MMS/NLLB stack is likewise retired
+  (HF decommissioned its legacy Inference API in late 2025, and no
+  provider serves MMS-TTS or NLLB anymore), and the SeamlessM4T v2
+  Inference Endpoint plan was cancelled — it needed a card/billing.
+  (HF_TOKEN in env is now unused by voice; scan keys are separate —
+  see Env below.)
 
 ## Env (server only, never commit)
 ```
@@ -81,7 +88,7 @@ META_API_KEY=
 AI_PROVIDER=baseten
 BASETEN_API_KEY=
 BASETEN_MODEL=meta-models/muse-spark-open
-# voice needs no key anymore (MyMemory + Edge, both free, no key).
+# voice needs no key (phone's own voice + free MyMemory translation).
 ```
 
 ## Run

@@ -1,7 +1,8 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DRUG_LIST } from "../lib/drugs";
 import { VOICE_LANGS, GUIDE_STEPS, BLURRY_PROMPT } from "../lib/voice";
+import { matchDeviceVoice } from "../lib/phone-voice";
 import { saveCabinetItem } from "../lib/cabinet";
 
 // Sample activity only — labelled as sample on the page, never live scans.
@@ -57,8 +58,21 @@ export default function Home() {
     if (!q) return true;
     return d.name.toLowerCase().includes(q) || (d.manufacturer || "").toLowerCase().includes(q);
   });
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string>("");
+  // Phone voice: the device's own voices, loaded async by the browser
+  // (Chrome fills the list a moment after load, hence voiceschanged).
+  const [deviceVoiceTags, setDeviceVoiceTags] = useState<string[]>([]);
+  const stopRef = useRef(false);
+  useEffect(() => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+    if (!synth) return;
+    const refresh = () => setDeviceVoiceTags(synth.getVoices().map((v) => v.lang));
+    refresh();
+    synth.addEventListener("voiceschanged", refresh);
+    return () => synth.removeEventListener("voiceschanged", refresh);
+  }, []);
+  function hasDeviceVoice(code: string) {
+    return matchDeviceVoice(code, deviceVoiceTags.map((lang) => ({ lang, name: lang }))) !== null;
+  }
 
   function speakText() {
     if (!result) return "";
@@ -66,41 +80,66 @@ export default function Home() {
     return text.replace(/\s+/g, " ").trim().slice(0, 500);
   }
 
-  async function fetchAudio(text: string, lang: string): Promise<{ blob?: Blob; message?: string }> {
-    try {
-      const res = await fetch("/api/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang }) });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        return { message: j.message || j.error || "Voice failed." };
-      }
-      return { blob: await res.blob() };
-    } catch {
-      return { message: "Network error. Try again." };
+  // Speak via the phone's own voice. Translation runs on the server
+  // (MyMemory, verified live); speech never leaves the device.
+  // Returns an exact message instead of audio when the phone has no
+  // voice for the picked language — never a silent fallback.
+  async function speakViaPhone(text: string, lang: string, onStart: () => void): Promise<{ message?: string }> {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+    if (!synth) {
+      return { message: "This device or browser has no built-in voice. Try Chrome on your phone." };
     }
-  }
-
-  function playBlob(blob: Blob) {
-    stopAudio();
-    const url = URL.createObjectURL(blob);
-    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-    audioUrlRef.current = url;
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.onended = () => setPlaying(false);
-    setPlaying(true);
-    return audio.play().catch(() => undefined);
+    stopRef.current = false;
+    let spoken = text;
+    const cfg = VOICE_LANGS[lang];
+    if (cfg?.myMemory) {
+      try {
+        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang }) });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          return { message: j.message || "Translation failed." };
+        }
+        const j = await res.json().catch(() => null);
+        if (!j || typeof j.text !== "string" || !j.text) return { message: "Translation failed." };
+        spoken = j.text;
+      } catch {
+        return { message: "Network error. Try again." };
+      }
+    }
+    const voice = matchDeviceVoice(lang, synth.getVoices());
+    if (!voice) {
+      return { message: `No voice on this phone for ${cfg?.label ?? lang}. Install a voice for this language in your phone's text-to-speech settings, or try English.` };
+    }
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const u = new SpeechSynthesisUtterance(spoken);
+        u.voice = voice;
+        u.lang = voice.lang;
+        u.onstart = () => onStart();
+        u.onend = () => resolve();
+        u.onerror = (e) => {
+          // An intentional Stop cancels the utterance; that is not a failure.
+          if (stopRef.current) resolve();
+          else reject(new Error(`Voice failed on this phone${e.error ? `: ${e.error}` : "."}`));
+        };
+        synth.speak(u);
+      });
+      return {};
+    } catch (e) {
+      return { message: e instanceof Error ? e.message : "Voice failed on this phone." };
+    }
   }
 
   async function listen() {
     setSpeakBusy(true); setSpeakError("");
-    const out = await fetchAudio(speakText(), voiceLang);
-    if (out.blob) await playBlob(out.blob);
-    else setSpeakError(out.message || "Voice failed.");
-    setSpeakBusy(false);
+    const out = await speakViaPhone(speakText(), voiceLang, () => { setSpeakBusy(false); setPlaying(true); });
+    setPlaying(false); setSpeakBusy(false);
+    if (out.message) setSpeakError(out.message);
   }
 
   function stopAudio() {
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    stopRef.current = true;
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
     setPlaying(false);
   }
 
@@ -108,20 +147,18 @@ export default function Home() {
   async function startGuide() {
     setGuideActive(true); setGuideStep(0); setGuideError("");
     setGuideBusy(true);
-    const out = await fetchAudio(GUIDE_STEPS[0], guideLang);
-    if (out.blob) await playBlob(out.blob);
-    else setGuideError(out.message || "Voice failed.");
+    const out = await speakViaPhone(GUIDE_STEPS[0], guideLang, () => setGuideBusy(false));
     setGuideBusy(false);
+    if (out.message) setGuideError(out.message);
   }
 
   async function nextGuide() {
     const next = Math.min(guideStep + 1, GUIDE_STEPS.length - 1);
     setGuideStep(next); setGuideError("");
     setGuideBusy(true);
-    const out = await fetchAudio(GUIDE_STEPS[next], guideLang);
-    if (out.blob) await playBlob(out.blob);
-    else setGuideError(out.message || "Voice failed.");
+    const out = await speakViaPhone(GUIDE_STEPS[next], guideLang, () => setGuideBusy(false));
     setGuideBusy(false);
+    if (out.message) setGuideError(out.message);
   }
 
   function stopGuide() {
@@ -136,10 +173,9 @@ export default function Home() {
     // in this round — photo-quality check is explicitly out of scope.
     const prefix = result.verdict.confidence < 0.6 ? `${BLURRY_PROMPT} ` : "";
     setGuideBusy(true); setGuideError("");
-    const out = await fetchAudio(prefix + speakText(), guideLang);
-    if (out.blob) await playBlob(out.blob);
-    else setGuideError(out.message || "Voice failed.");
+    const out = await speakViaPhone(prefix + speakText(), guideLang, () => setGuideBusy(false));
     setGuideBusy(false);
+    if (out.message) setGuideError(out.message);
   }
 
   function saveToCabinet() {
@@ -251,13 +287,13 @@ export default function Home() {
                 <div className="guide-box">
                   <strong>Voice guide</strong>
                   <p className="small muted" style={{ margin: "4px 0 10px" }}>
-                    Tap Start and the guide speaks each step in your language. It never plays on its own.
+                    Tap Start and the guide speaks each step in your language. It never plays on its own. It uses your phone's built-in voice — no server, no key.
                   </p>
                   <div className="voice-row" style={{ marginTop: 0 }}>
                     <label htmlFor="guide-lang">Guide language:</label>
                     <select id="guide-lang" value={guideLang} onChange={(e) => setGuideLang(e.target.value)}>
                       {Object.entries(VOICE_LANGS).map(([code, cfg]) => (
-                        <option key={code} value={code}>{cfg.label}</option>
+                        <option key={code} value={code}>{cfg.label}{deviceVoiceTags.length > 0 && !hasDeviceVoice(code) ? " — no voice on this phone" : ""}</option>
                       ))}
                     </select>
                     {!guideActive ? (
@@ -343,7 +379,7 @@ export default function Home() {
                     <label htmlFor="voice-lang">Listen in:</label>
                     <select id="voice-lang" value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)}>
                       {Object.entries(VOICE_LANGS).map(([code, cfg]) => (
-                        <option key={code} value={code}>{cfg.label}</option>
+                        <option key={code} value={code}>{cfg.label}{deviceVoiceTags.length > 0 && !hasDeviceVoice(code) ? " — no voice on this phone" : ""}</option>
                       ))}
                     </select>
                     {!playing ? (
@@ -551,7 +587,7 @@ export default function Home() {
             <div className="feature"><div className="feature-tile">3</div><h3>Multi-photo scan</h3><p className="small muted">Front, strip and full pack merge into one verdict. A conflict between photos drops GREEN to AMBER, never hides a risk.</p></div>
             <div className="feature"><div className="feature-tile">50</div><h3>Fresh Pakistan list</h3><p className="small muted">50 common Pakistani medicines, written fresh for this hackathon. A maker is shown only when it is confident.</p></div>
             <div className="feature"><div className="feature-tile">✓</div><h3>Explainable verdicts</h3><p className="small muted">You see exactly why a pack passed or failed, in plain words, plus the exact label reading and per-photo readings.</p></div>
-            <div className="feature"><div className="feature-tile">50</div><h3>Listen in 50 languages</h3><p className="small muted">Tap Listen to hear the verdict in 50 languages, or start the voice guide during your scan. The written result always stays in English.</p></div>
+            <div className="feature"><div className="feature-tile">Phone</div><h3>Listen in your phone's voice</h3><p className="small muted">Tap Listen to hear the verdict spoken by your phone's own voice, in the language you pick, or start the voice guide during your scan. The written result always stays in English.</p></div>
             <div className="feature"><div className="feature-tile">B</div><h3>Barcode cross-check</h3><p className="small muted">If the barcode label names a different medicine than the front of the pack, the verdict drops to AMBER. An unreadable barcode never penalises a pack.</p></div>
             <div className="feature"><div className="feature-tile">C</div><h3>Family cabinet</h3><p className="small muted">Save a scanned medicine to your on-device cabinet and see expiry alerts when you open it. Nothing is stored on a server.</p></div>
             <div className="feature"><div className="feature-tile">!</div><h3>Screening only</h3><p className="small muted">This checks authenticity signs, it never gives dosage, usage or treatment advice, and never diagnoses.</p></div>
