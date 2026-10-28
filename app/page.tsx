@@ -37,12 +37,12 @@ export default function Home() {
   const [error, setError] = useState("");
   // Voice: written page/verdict always stays in English. Only the spoken
   // verdict changes language, and only when the user taps Listen.
-  const [voiceLang, setVoiceLang] = useState("en");
+  const [voiceLang, setVoiceLang] = useState("en-US");
   const [speakBusy, setSpeakBusy] = useState(false);
   const [speakError, setSpeakError] = useState("");
   const [playing, setPlaying] = useState(false);
   // Voice guide (Feature 2): speaks ONLY after the user taps Start.
-  const [guideLang, setGuideLang] = useState("en");
+  const [guideLang, setGuideLang] = useState("en-US");
   const [guideStep, setGuideStep] = useState(0);
   const [guideActive, setGuideActive] = useState(false);
   const [guideBusy, setGuideBusy] = useState(false);

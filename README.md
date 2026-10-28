@@ -47,30 +47,31 @@ Screening only. If in doubt, show the pack to a pharmacist.
   parses JSON out of the reply text. If Plan B is used, the UI footer "Built with Muse Spark Open" applies.
 
 ## Voice (free Meta models, no card, no endpoint)
-Beside every verdict there is a Listen button with a language choice:
-English (default), Urdu, Sindhi, Punjabi. The written site and written
-verdict always stay in English; changing the voice language only changes
-the spoken verdict. Playback is tap-only, never autoplay.
+Beside every verdict there is a Listen button with a language choice.
+The written site and written verdict always stay in English; changing
+the voice language only changes the spoken verdict. Playback is
+tap-only, never autoplay.
 
-How it works (server-side `/api/speak`, token in server env only):
-- Translation: Meta NLLB `facebook/nllb-200-distilled-600M` (English ->
-  `urd_Arab`, `snd_Arab`, `pan_Guru`) via the Hugging Face Inference API.
-- Voice: Meta MMS-TTS via the same API — `facebook/mms-tts-eng`,
-  `facebook/mms-tts-urd-script_arabic`, `facebook/mms-tts-snd`,
-  `facebook/mms-tts-pan` (Punjabi is listed as Eastern/Gurmukhi side, so it
-  may not match Shahmukhi perfectly).
+How it works (server-side `/api/speak`, no key, no card):
+- Translation: MyMemory (free, no key) English -> target language.
+- Voice: Microsoft Edge neural voices via the `edge-tts` npm package
+  (free, no key, unofficial service). The dropdown lists every Edge
+  locale with a voice (140 entries, one voice per locale, female
+  preferred) — e.g. English (United States), Urdu (Pakistan),
+  Punjabi (India, Gurmukhi side, as before).
 - Limits: 10 listens/minute per IP, spoken text capped at 500 characters,
-  short demo verdicts only. First request can wait while a free model loads.
-- Honest limits: Sindhi voice (`facebook/mms-tts-snd`) is NOT yet confirmed
-  by a live test — if HF returns 404 the button shows that exact error
-  instead of fake audio. MMS/NLLB are CC-BY-NC, fine for a hackathon demo.
+  short demo verdicts only.
+- Honest limits: Edge has NO Sindhi voice, so Sindhi is not in the voice
+  list — the old HF MMS/NLLB stack is retired (HF decommissioned its
+  legacy Inference API in late 2025, and no provider serves MMS-TTS or
+  NLLB anymore; the router returns "Model not supported by provider
+  hf-inference"). If MyMemory does not support a listed locale, the
+  button shows that exact error instead of fake audio. Edge is
+  unofficial, so the phone test is the proof for each language.
 - Superseded plan: the earlier SeamlessM4T v2 Inference Endpoint plan was
-  cancelled — it needed a card/billing. This stack needs no endpoint.
-
-If Hugging Face returns 401/403, the token is the problem: a plain Read
-token may not be enough for HF's newer Inference Providers routing. Make a
-fine-grained token with "Make calls to Inference Providers" enabled and put
-it in the server env instead. Never put any token in chat or in the repo.
+  cancelled — it needed a card/billing. This stack needs no endpoint and
+  no token for voice. (HF_TOKEN in env is now unused by voice; scan keys
+  are separate — see Env below.)
 
 ## Env (server only, never commit)
 ```
@@ -80,8 +81,7 @@ META_API_KEY=
 AI_PROVIDER=baseten
 BASETEN_API_KEY=
 BASETEN_MODEL=meta-models/muse-spark-open
-# voice (Hugging Face, server only):
-HF_TOKEN=
+# voice needs no key anymore (MyMemory + Edge, both free, no key).
 ```
 
 ## Run

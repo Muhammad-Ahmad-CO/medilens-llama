@@ -1,44 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { VOICE_LANGS, NLLB_MODEL, isVoiceLang } from "@/lib/voice";
+import { VOICE_LANGS, isVoiceLang } from "@/lib/voice";
+import { tts as edgeTts } from "edge-tts/out/index.js";
 
-// POST { text, lang } -> audio bytes (from HF Inference API) for tap-only playback.
-// text must already be English (the written verdict). Translation happens here,
-// on the server, so the written page never changes language.
+// POST { text, lang } -> audio bytes for tap-only playback.
+// Free server stack, no key, no card:
+//   1) Translation: MyMemory (free, no key) English -> target language.
+//      Skipped for English locales (myMemory null) and for Roman Urdu,
+//      which uses the Urdu translation (spoken Urdu is script-independent).
+//   2) Speech: Microsoft Edge neural voices via the `edge-tts` package
+//      (free, no key, unofficial service — Microsoft can change it).
+// The written site and written verdict always stay English. Only the
+// spoken output changes language. Never autoplay, never fake audio:
+// every failure returns an exact error instead of audio in another language.
 // Limits: 10 listens/minute per IP, text max 500 chars (short demo verdicts).
 const hits = new Map<string, { count: number; reset: number }>();
-// HF Inference Providers router. The legacy api-inference.huggingface.co
-// endpoint was fully decommissioned (late 2025) — calls to it now fail
-// before any HTTP response, which surfaced as the misleading
-// "check your connection" error. The router is the documented replacement,
-// and the token needs the "Make calls to Inference Providers" permission.
-const HF_API = "https://router.huggingface.co/hf-inference/models";
 
 function err(status: number, code: string, message: string) {
   return NextResponse.json({ error: code, message }, { status });
 }
 
-async function readHfError(res: Response): Promise<string> {
-  try {
-    const j = await res.json();
-    const msg = j?.error || j?.message || JSON.stringify(j);
-    const wait = j?.estimated_time ? ` Model is loading, try again in about ${Math.ceil(j.estimated_time)} seconds.` : "";
-    return `${String(msg).slice(0, 240)}${wait}`;
-  } catch {
-    return `Hugging Face returned status ${res.status}.`;
-  }
-}
-
-async function hfPost(token: string, model: string, body: unknown): Promise<Response> {
-  return fetch(`${HF_API}/${model}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    // HF free models can take a while to wake up on first request.
-    signal: AbortSignal.timeout(60000),
+function withTimeout<T>(p: Promise<T>, ms: number, code: string, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(message), { code })), ms);
   });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 export async function POST(req: NextRequest) {
@@ -57,89 +43,57 @@ export async function POST(req: NextRequest) {
     return err(400, "BAD_TEXT", "Send a short verdict text (1 to 500 characters).");
   }
   if (!isVoiceLang(lang)) {
-    return err(400, "BAD_LANG", "Voice language must be one of the 50 supported language codes.");
-  }
-
-  const token = process.env.HF_TOKEN;
-  if (!token) {
-    return err(
-      503,
-      "VOICE_NOT_CONFIGURED",
-      "Voice is not set up on the server yet. The HF token must be added to the server env (Vercel) — never in chat or in the repo.",
-    );
+    return err(400, "BAD_LANG", "Voice language must be one of the Edge voice locales in the list.");
   }
 
   const cfg = VOICE_LANGS[lang];
   let spoken = text;
 
-  // 1) Translate English -> target language (skip for English).
-  if (cfg.nllbCode) {
+  // 1) Translate English -> target language (skip for English locales).
+  if (cfg.myMemory) {
     let tr: Response;
     try {
-      tr = await hfPost(token, NLLB_MODEL, {
-        inputs: text,
-        parameters: { src_lang: "eng_Latn", tgt_lang: cfg.nllbCode },
-      });
+      tr = await fetch(
+        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|${cfg.myMemory}`,
+        { signal: AbortSignal.timeout(30000) },
+      );
     } catch {
-      // The fetch itself failed (service unreachable), not the user's
-      // connection — this runs on the server, not on the phone.
       return err(502, "TRANSLATION_FAILED", "Translation service could not be reached. Try again.");
     }
     if (!tr.ok) {
-      const detail = await readHfError(tr);
-      if (tr.status === 503) return err(503, "MODEL_LOADING", detail);
-      if (tr.status === 401 || tr.status === 403) {
-        return err(503, "HF_AUTH_FAILED", `Hugging Face rejected the token (${detail}). If you made a Read token, try a fine-grained token with "Make calls to Inference Providers" enabled instead.`);
-      }
-      if (tr.status === 404) {
-        return err(502, "TRANSLATION_MODEL_NOT_FOUND", `Translation model ${NLLB_MODEL} is not served by Hugging Face Inference Providers. Try English for now.`);
-      }
-      return err(502, "TRANSLATION_FAILED", detail);
+      return err(502, "TRANSLATION_FAILED", `Translation service returned status ${tr.status}. Try again.`);
     }
-    try {
-      const j = await tr.json();
-      const out = Array.isArray(j) ? j[0]?.translation_text : j?.translation_text;
-      if (!out || typeof out !== "string") {
-        return err(502, "TRANSLATION_FAILED", "Translation returned no text. Try again.");
-      }
-      spoken = out;
-    } catch {
-      return err(502, "TRANSLATION_FAILED", "Translation returned an unreadable reply. Try again.");
+    const j = await tr.json().catch(() => null);
+    const translated = j?.responseData?.translatedText;
+    if (j?.quotaFinished) {
+      return err(502, "TRANSLATION_LIMIT", "Translation daily limit reached. Try again later.");
     }
+    if (String(j?.responseStatus) !== "200" || !translated || typeof translated !== "string") {
+      return err(502, "TRANSLATION_FAILED", `Translation failed for this language (${String(j?.responseDetails || "no translated text")}). Try English instead.`);
+    }
+    spoken = translated;
   }
 
-  // 2) Speak the (translated) text with Meta MMS-TTS. Returns audio bytes.
-  let tts: Response;
+  // 2) Speak the (translated) text with the Edge voice for this locale.
+  let audio: Buffer;
   try {
-    tts = await hfPost(token, cfg.ttsModel, { inputs: spoken });
-  } catch {
-    // Server-to-service failure, not the user's connection.
-    return err(502, "VOICE_FAILED", "Voice service could not be reached. Try again.");
-  }
-  if (!tts.ok) {
-    const detail = await readHfError(tts);
-    if (tts.status === 503) return err(503, "MODEL_LOADING", detail);
-    if (tts.status === 401 || tts.status === 403) {
-      return err(503, "HF_AUTH_FAILED", `Hugging Face rejected the token (${detail}). If you made a Read token, try a fine-grained token with "Make calls to Inference Providers" enabled instead.`);
+    audio = await withTimeout(
+      edgeTts(spoken, { voice: cfg.voice }),
+      60000,
+      "VOICE_TIMEOUT",
+      "Voice service timed out. Try again.",
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg.includes("403") || msg.includes("401")) {
+      return err(502, "VOICE_AUTH_FAILED", `Edge voice service rejected the request for voice ${cfg.voice}. Try again later.`);
     }
-    if (tts.status === 404) {
-      return err(502, "VOICE_MODEL_NOT_FOUND", `Voice model ${cfg.ttsModel} was not found on Hugging Face. This language's voice is not confirmed yet — try English or Urdu.`);
-    }
-    return err(502, "VOICE_FAILED", detail);
+    return err(502, "VOICE_FAILED", msg ? `Voice failed for ${cfg.voice}: ${msg.slice(0, 200)}` : `Voice failed for ${cfg.voice}. Try again.`);
   }
-
-  const contentType = tts.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    return err(502, "VOICE_FAILED", await readHfError(tts));
+  if (!audio || audio.length === 0) {
+    return err(502, "VOICE_FAILED", `Voice returned empty audio for ${cfg.voice}. Try again.`);
   }
-  const audio = await tts.arrayBuffer();
-  if (!audio.byteLength) {
-    return err(502, "VOICE_FAILED", "Voice returned empty audio. Try again.");
-  }
-  return new Response(audio, {
-    headers: {
-      "Content-Type": contentType.startsWith("audio/") ? contentType : "audio/wav",
-      "Cache-Control": "no-store",
-    },
+  return new Response(audio as unknown as BodyInit, {
+    headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
   });
 }
