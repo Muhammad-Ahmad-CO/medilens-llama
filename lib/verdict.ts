@@ -59,7 +59,7 @@ export function parseExpiry(raw: string | null): Date | null {
     JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
     JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
   };
-  m = t.match(/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s*(\d{2,4})/);
+  m = t.match(/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*[\s\-\/]*(\d{2,4})/);
   if (m) {
     let y = +m[2];
     if (y < 100) y += 2000;

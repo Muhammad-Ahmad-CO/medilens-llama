@@ -33,16 +33,24 @@ export function providerConfig() {
 }
 
 export function parseLabelText(text: string): Label | null {
-  const m = text.match(/\{[\s\S]*\}/);
+  // Non-greedy: take the FIRST complete {...} block. The label JSON is
+  // flat (no nested objects), so if the model adds chatter with braces
+  // after the JSON, we still grab the JSON and not the chatter.
+  const m = text.match(/\{[\s\S]*?\}/);
   if (!m) return null;
   try {
     const j = JSON.parse(m[0]);
     if (typeof j !== "object" || j === null) return null;
+    // Defensive: the prompt says "string or null", but if the model
+    // returns a number/boolean for a text field, coerce instead of
+    // crashing downstream (norm() calls .toLowerCase()).
+    const str = (v: unknown): string | null =>
+      typeof v === "string" ? v : v == null ? null : String(v);
     return {
-      drugName: j.drugName ?? null,
-      manufacturer: j.manufacturer ?? null,
-      batchNumber: j.batchNumber ?? null,
-      expiryDate: j.expiryDate ?? null,
+      drugName: str(j.drugName),
+      manufacturer: str(j.manufacturer),
+      batchNumber: str(j.batchNumber),
+      expiryDate: str(j.expiryDate),
       confidence: typeof j.confidence === "number" ? j.confidence : 0.55,
       // Barcode digits often come back as a JSON number (8901234567890)
       // instead of a string — coerce numbers to string, otherwise the
@@ -63,9 +71,13 @@ export function parseLabelText(text: string): Label | null {
 export async function extractLabel(imageBase64: string): Promise<Label | null> {
   const cfg = providerConfig();
   if (!cfg.key) return null;
+  // 120s cap: never hang the request forever if the vision API stalls.
+  // (Vercel kills the function at its own timeout anyway; this surfaces
+  // an exact error instead of a silent hang.)
   const res = await fetch(`${cfg.base}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
+    signal: AbortSignal.timeout(120000),
     body: JSON.stringify({
       model: cfg.model,
       messages: [
@@ -85,6 +97,13 @@ export async function extractLabel(imageBase64: string): Promise<Label | null> {
     throw new Error(`${cfg.provider} API ${res.status}: ${body.slice(0, 300)}`);
   }
   const json = await res.json();
-  const text: string = json?.choices?.[0]?.message?.content ?? "";
+  const rawContent: unknown = json?.choices?.[0]?.message?.content;
+  // Some providers return content as blocks [{type:"text",text:"..."}];
+  // join those, otherwise use the plain string.
+  const text: string = Array.isArray(rawContent)
+    ? rawContent.map((b) => (typeof b?.text === "string" ? b.text : "")).join("")
+    : typeof rawContent === "string"
+      ? rawContent
+      : "";
   return parseLabelText(text);
 }

@@ -62,6 +62,10 @@ export default function Home() {
   // (Chrome fills the list a moment after load, hence voiceschanged).
   const [deviceVoiceTags, setDeviceVoiceTags] = useState<string[]>([]);
   const stopRef = useRef(false);
+  // Generation counter: every new speech or Stop invalidates in-flight
+  // completions, so a slow earlier call can never overwrite the state
+  // of a later one (e.g. Stop then quick Listen again).
+  const speechGen = useRef(0);
   useEffect(() => {
     const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
     if (!synth) return;
@@ -90,6 +94,10 @@ export default function Home() {
       return { message: "This device or browser has no built-in voice. Try Chrome on your phone." };
     }
     stopRef.current = false;
+    // Interrupt anything currently speaking: a new tap always wins over
+    // a queued/ongoing utterance (the previous call's completion is
+    // discarded by the generation guard at the call site).
+    synth.cancel();
     let spoken = text;
     const cfg = VOICE_LANGS[lang];
     if (cfg?.myMemory) {
@@ -105,6 +113,9 @@ export default function Home() {
       } catch {
         return { message: "Network error. Try again." };
       }
+      // The user may have tapped Stop while translation was in flight:
+      // never start speaking after a stop.
+      if (stopRef.current) return {};
     }
     const voice = matchDeviceVoice(lang, synth.getVoices());
     if (!voice) {
@@ -131,13 +142,18 @@ export default function Home() {
   }
 
   async function listen() {
+    const gen = ++speechGen.current;
     setSpeakBusy(true); setSpeakError("");
     const out = await speakViaPhone(speakText(), voiceLang, () => { setSpeakBusy(false); setPlaying(true); });
+    // Always reset busy state (a superseded call must not leave the
+    // button stuck on "Loading voice…"); only the message is discarded.
     setPlaying(false); setSpeakBusy(false);
+    if (speechGen.current !== gen) return; // superseded by a later tap/Stop
     if (out.message) setSpeakError(out.message);
   }
 
   function stopAudio() {
+    speechGen.current++; // invalidate any in-flight speech completion
     stopRef.current = true;
     if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
     setPlaying(false);
@@ -145,19 +161,23 @@ export default function Home() {
 
   // Voice guide (Feature 2): nothing plays until the user taps Start.
   async function startGuide() {
+    const gen = ++speechGen.current;
     setGuideActive(true); setGuideStep(0); setGuideError("");
     setGuideBusy(true);
     const out = await speakViaPhone(GUIDE_STEPS[0], guideLang, () => setGuideBusy(false));
     setGuideBusy(false);
+    if (speechGen.current !== gen) return;
     if (out.message) setGuideError(out.message);
   }
 
   async function nextGuide() {
     const next = Math.min(guideStep + 1, GUIDE_STEPS.length - 1);
+    const gen = ++speechGen.current;
     setGuideStep(next); setGuideError("");
     setGuideBusy(true);
     const out = await speakViaPhone(GUIDE_STEPS[next], guideLang, () => setGuideBusy(false));
     setGuideBusy(false);
+    if (speechGen.current !== gen) return;
     if (out.message) setGuideError(out.message);
   }
 
@@ -172,9 +192,11 @@ export default function Home() {
     // (confidence below 0.6). There is no separate blur detector
     // in this round — photo-quality check is explicitly out of scope.
     const prefix = result.verdict.confidence < 0.6 ? `${BLURRY_PROMPT} ` : "";
+    const gen = ++speechGen.current;
     setGuideBusy(true); setGuideError("");
     const out = await speakViaPhone(prefix + speakText(), guideLang, () => setGuideBusy(false));
     setGuideBusy(false);
+    if (speechGen.current !== gen) return;
     if (out.message) setGuideError(out.message);
   }
 
