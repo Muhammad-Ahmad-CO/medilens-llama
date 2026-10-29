@@ -119,28 +119,31 @@ number cannot be mapped to a medicine name — there is no GTIN registry
 in this repo, and none was invented — so a mismatch fires only when the
 barcode label itself carries a different product name.
 
-Feature 2 — Voice-Guided Scan Journey + 50-Language Voice: the scanner
+Feature 2 — Voice-Guided Scan Journey + Phone Voice: the scanner
 card has a "Start voice guide" button (tap-only, never autoplay) that
 speaks, in the selected guide language, "Show the front of the pack",
 "Now show the side with batch and expiry", "Now show the full pack and
 seal", then the verdict on tap ("Hear guide verdict"). If the scan
 confidence is below 0.6, the verdict speech is prefixed with "Photo is
 blurry, please retake." — low confidence is the honest trigger, because
-a separate blur detector is out of scope this round. Listen and guide
-share the same 50-language list (English, Urdu, Sindhi, Punjabi, Roman
-Urdu (testing), Arabic, French, Spanish, German, Italian, Portuguese,
-Russian, Mandarin Chinese, Japanese, Korean, Hindi, Bengali, Tamil,
-Telugu, Marathi, Gujarati, Malayalam, Kannada, Nepali, Sinhala, Thai,
-Vietnamese, Indonesian, Malay, Turkish, Persian, Pashto, Balochi,
-Saraiki, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Ukrainian,
-Czech, Romanian, Greek, Hebrew, Hungarian, Swahili, Hausa, Amharic,
-Somali) on the same free Meta stack (NLLB + MMS-TTS via HF Inference
-API). Written site and verdict always stay English. 500-char cap and
-first-2-reasons rule still apply. If a language model is missing (404)
-or fails, /api/speak reports that exact error — never fake audio, never
-a silent fallback to English. Rare language codes (Balochi, Saraiki,
-Pashto, Persian, Malay, Norwegian, Mandarin) are best-effort ISO codes
-and are NOT live-verified until a phone test passes.
+a separate blur detector is out of scope this round. Speech is the
+PHONE's own voice (Web Speech API, lib/phone-voice.ts) — no server
+audio, no key, no card. Translation is MyMemory via /api/translate
+(free, no key). Listen and guide share the same language list (141
+locales, incl. English, Urdu, Sindhi, Punjabi, Roman Urdu (testing),
+Arabic, French, Spanish, German, Italian, Portuguese, Russian, Mandarin
+Chinese, Japanese, Korean, Hindi, Bengali, Tamil, Telugu, Marathi,
+Gujarati, Malayalam, Kannada, Nepali, Sinhala, Thai, Vietnamese,
+Indonesian, Malay, Turkish, Persian, Pashto, Dutch, Swedish, Norwegian,
+Danish, Finnish, Polish, Ukrainian, Czech, Romanian, Greek, Hebrew,
+Hungarian, Swahili, Amharic, Somali). Whether a locale actually speaks
+depends on the PHONE: the dropdown marks locales the phone has no voice
+for, and tapping Listen for one shows that exact message — never fake
+audio, never a silent fallback to another language. Written site and
+verdict always stay English. 500-char cap and first-2-reasons rule
+still apply. Retired 2026-10-28: the HF NLLB+MMS-TTS stack (no provider
+serves those models) and the Edge server-voice stack (synthesis never
+worked from this Vercel deployment); /api/speak is now a 410 stub.
 
 Feature 3 — Family Medicine Cabinet + Expiry Alerts: after a scan, "Save
 to cabinet" (tap only, never auto-save) stores name, batch, expiry and
@@ -152,9 +155,7 @@ notifications. Scans are still never stored server-side.
 Not built in this round (per plan): hotspot map, pack-defect check,
 photo-quality check, tamper forensics, shareable verdict card.
 
-Live vision + voice tests still pending Vercel env vars (META_API_KEY
-or BASETEN_API_KEY, HF_TOKEN) and a phone test — the code above is
-build-verified, not live-verified.
+Live status 2026-10-29: vision is live-verified via Baseten (AI_PROVIDER=baseten + BASETEN_API_KEY in Vercel env; test scan returned a real vision reading, and a synthetic pack scan returned full GREEN), translation is live-verified (Urdu + Sindhi via /api/translate), and the user phone-tested the voice successfully. HF_TOKEN is deleted (unused). Still pending: the user's real medicine-pack phone scan.
 
 ## Design v3 (cinematic hero, hackathon build)
 
