@@ -5,8 +5,11 @@
  * decides the verdict — lib/verdict.ts still decides that.
  *
  * Merge rules (audit-fixed, Oct 2026):
- * - First non-null value wins, in the order the photos were sent
- *   (slot order: front, batch/expiry strip, full pack/seal).
+ * - First non-null value wins, in the order the photos were sent.
+ *   Slots are only photo pickers — any photo may go in any slot and each
+ *   photo is analysed for whatever it shows. There is deliberately NO
+ *   slot-mismatch check: a batch photo in the "front" slot reads exactly
+ *   the same as in the "strip" slot.
  * - Confidence is the LOWEST confidence among photos that actually
  *   contributed a field to the merged label. A photo that read nothing
  *   (for example a seal photo with no text) must not drag a clean
@@ -23,7 +26,7 @@ import { parseExpiry } from "./verdict";
 
 export interface MergedLabel {
   label: Label;
-  /** One reading per successfully read photo, in slot order. */
+  /** One reading per successfully read photo, in send order (never labelled by slot). */
   perPhoto: Label[];
   /** Conflict reason strings, empty when there is no conflict. */
   conflicts: string[];

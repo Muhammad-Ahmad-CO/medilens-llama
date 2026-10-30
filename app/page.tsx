@@ -32,7 +32,6 @@ const SLOTS = [
 
 export default function Home() {
   const [photos, setPhotos] = useState<string[]>(["", "", ""]);
-  const [sentSlots, setSentSlots] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
@@ -254,9 +253,9 @@ export default function Home() {
   async function scan() {
     const images = photos.filter((p) => p);
     if (images.length === 0) return;
-    // Remember which slots were sent, in sent order, so the per-photo
-    // readings below are labelled by slot, not just "Photo 1, 2".
-    setSentSlots(SLOTS.filter((_, i) => photos[i]).map((s) => s.short));
+    // Per-photo readings are labelled "Photo 1, 2, 3" by send order —
+    // never by slot name. Slots are just pickers; any photo may go in any
+    // slot and each photo is analysed for whatever it shows.
     setBusy(true); setError(""); setResult(null); setSavedMsg("");
     try {
       const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images }) });
@@ -345,6 +344,9 @@ export default function Home() {
                   )}
                   {guideError && <p className="error-text">{guideError}</p>}
                 </div>
+                <p className="small muted" style={{ margin: "0 0 8px" }}>
+                  Any photo in any slot — each photo is read for whatever it shows.
+                </p>
                 {SLOTS.map((slot, i) => (
                   <div className="slot" key={slot.key}>
                     <span className="slot-label">{slot.label}</span>
@@ -392,7 +394,7 @@ export default function Home() {
                       <h3 style={{ fontSize: "1.05rem", marginTop: 20 }}>Per-photo readings</h3>
                       <ul className="perphoto-list">
                         {result.perPhoto.map((p: any, i: number) => (
-                          <li key={i}>{sentSlots[i] || `Photo ${i + 1}`}: {p.drugName ?? "name not read"} | batch {p.batchNumber ?? "—"} | expiry {p.expiryDate ?? "—"}</li>
+                          <li key={i}>Photo {i + 1}: {p.drugName ?? "name not read"} | batch {p.batchNumber ?? "—"} | expiry {p.expiryDate ?? "—"}</li>
                         ))}
                       </ul>
                     </>
