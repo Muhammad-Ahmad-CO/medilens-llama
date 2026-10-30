@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     if (!providerConfig().key) {
       return NextResponse.json({ error: "AI_NOT_CONFIGURED", message: "Vision API key is not set on the server yet." }, { status: 503 });
     }
-    return NextResponse.json({ error: "UNREADABLE_PHOTO", message: "No photo could be read. Retake in better light with the full label visible." }, { status: 422 });
+    return NextResponse.json({ error: "UNREADABLE_PHOTO", message: "No photo could be read. Retake with the full label inside the photo — batch number and expiry date fully visible, not cut off at the edge — in good light." }, { status: 422 });
   }
 
   const merged = mergeLabels(labels);
