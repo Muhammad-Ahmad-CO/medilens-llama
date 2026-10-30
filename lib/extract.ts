@@ -71,13 +71,34 @@ export function parseLabelText(text: string): Label | null {
 export async function extractLabel(imageBase64: string): Promise<Label | null> {
   const cfg = providerConfig();
   if (!cfg.key) return null;
-  // 120s cap: never hang the request forever if the vision API stalls.
-  // (Vercel kills the function at its own timeout anyway; this surfaces
-  // an exact error instead of a silent hang.)
+  // Robustness loop: a tilted, dark or low-contrast photo can make the
+  // vision model return no usable JSON. So we try up to 4 variants of the
+  // same photo — original, rotated 90°, rotated 270°, and an enhanced
+  // (auto-contrast + sharpen) copy — and keep the FIRST one that parses.
+  // API errors (bad key, rate limit) still throw immediately; only an
+  // unparseable reply moves on to the next variant.
+  const variants = await buildVariants(imageBase64);
+  for (const v of variants) {
+    const label = await tryVisionCall(v, cfg);
+    if (label) return label;
+  }
+  return null;
+}
+
+// One vision attempt against a single image variant. Returns the parsed
+// label, or null when the reply has no usable JSON. Throws on API errors.
+async function tryVisionCall(
+  jpegBase64: string,
+  cfg: ReturnType<typeof providerConfig>
+): Promise<Label | null> {
+  // 45s cap per attempt: the model usually answers in seconds; never hang
+  // the request forever if the vision API stalls. (Vercel kills the
+  // function at its own timeout anyway; this surfaces an exact error
+  // instead of a silent hang.)
   const res = await fetch(`${cfg.base}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
-    signal: AbortSignal.timeout(120000),
+    signal: AbortSignal.timeout(45000),
     body: JSON.stringify({
       model: cfg.model,
       messages: [
@@ -85,7 +106,7 @@ export async function extractLabel(imageBase64: string): Promise<Label | null> {
           role: "user",
           content: [
             { type: "text", text: PROMPT },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpegBase64}` } },
           ],
         },
       ],
@@ -106,4 +127,37 @@ export async function extractLabel(imageBase64: string): Promise<Label | null> {
       ? rawContent
       : "";
   return parseLabelText(text);
+}
+
+// Build the image variants for the robustness loop. Returns base64 JPEG
+// strings, original first. If sharp is unavailable or the image cannot be
+// processed, falls back to the single original image.
+async function buildVariants(imageBase64: string): Promise<string[]> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const input = Buffer.from(imageBase64, "base64");
+    const meta = await sharp(input).metadata();
+    if (!meta.width || !meta.height) return [imageBase64];
+    const variants: string[] = [];
+    // 0: original, normalised to JPEG.
+    variants.push(
+      (await sharp(input).jpeg({ quality: 88 }).toBuffer()).toString("base64")
+    );
+    // 1-2: 90° / 270° rotations for tilted photos.
+    variants.push(
+      (await sharp(input).rotate(90).jpeg({ quality: 88 }).toBuffer()).toString("base64")
+    );
+    variants.push(
+      (await sharp(input).rotate(270).jpeg({ quality: 88 }).toBuffer()).toString("base64")
+    );
+    // 3: enhanced — auto-contrast + sharpen for dark / washed-out photos.
+    variants.push(
+      (
+        await sharp(input).normalize().sharpen().jpeg({ quality: 88 }).toBuffer()
+      ).toString("base64")
+    );
+    return variants;
+  } catch {
+    return [imageBase64];
+  }
 }
