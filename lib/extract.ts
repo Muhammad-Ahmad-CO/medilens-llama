@@ -205,18 +205,32 @@ async function buildVariants(imageBase64: string): Promise<string[]> {
     const meta = await sharp(input).metadata();
     if (!meta.width || !meta.height) return [imageBase64];
     const variants: string[] = [];
+    const toB64 = (b: Buffer) => b.toString("base64");
     // 0: original, normalised to JPEG.
+    variants.push(toB64(await sharp(input).jpeg({ quality: 88 }).toBuffer()));
+    // 1: code-blurred — masks the densest 2D-barcode-like region with a
+    // strong blur (see blurCodeRegion). Added only when such a region
+    // is actually found.
+    const deCoded = await blurCodeRegion(input);
+    if (deCoded) variants.push(toB64(deCoded));
+    // 2: small (0.35x) — second line of 2D-code evasion: the code pattern
+    // becomes unresolvable while big text stays readable.
     variants.push(
-      (await sharp(input).jpeg({ quality: 88 }).toBuffer()).toString("base64")
+      toB64(
+        await sharp(input)
+          .resize({ width: Math.max(240, Math.round((meta.width || 800) * 0.35)) })
+          .jpeg({ quality: 88 })
+          .toBuffer()
+      )
     );
-    // 1-2: 90° / 270° rotations for tilted photos.
+    // 3-4: 90° / 270° rotations for tilted photos.
     variants.push(
       (await sharp(input).rotate(90).jpeg({ quality: 88 }).toBuffer()).toString("base64")
     );
     variants.push(
       (await sharp(input).rotate(270).jpeg({ quality: 88 }).toBuffer()).toString("base64")
     );
-    // 3: enhanced — auto-contrast + sharpen for dark / washed-out photos.
+    // 5: enhanced — auto-contrast + sharpen for dark / washed-out photos.
     variants.push(
       (
         await sharp(input).normalize().sharpen().jpeg({ quality: 88 }).toBuffer()
@@ -225,5 +239,94 @@ async function buildVariants(imageBase64: string): Promise<string[]> {
     return variants;
   } catch {
     return [imageBase64];
+  }
+}
+
+// Dense 2D-code masking. Pakistani packs carry a DRAP Data Matrix code,
+// and the vision model returns EMPTY replies for images where that code
+// pattern is resolvable (a 2D-barcode safety filter). Masking just the
+// code region with a strong blur breaks the pattern while nearby text
+// stays readable — unlike downscaling, which also shrinks the text.
+// Detection: edge-density grid. A 2D code is the single densest compact
+// square region, far above the image median. We grow a square from the
+// peak-density cell while the average density inside stays high.
+// Returns a JPEG buffer with the region blurred, or null when no
+// code-like region is found (then the caller simply skips this variant).
+async function blurCodeRegion(input: Buffer): Promise<Buffer | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const { data, info } = await sharp(input)
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const W = info.width || 0;
+    const H = info.height || 0;
+    if (!W || !H) return null;
+    const CELL = 16;
+    const gw = Math.ceil(W / CELL);
+    const gh = Math.ceil(H / CELL);
+    const scores = new Float32Array(gw * gh);
+    for (let y = 0; y < H - 1; y++) {
+      for (let x = 0; x < W - 1; x++) {
+        const i = y * W + x;
+        const e = Math.abs(data[i] - data[i + 1]) + Math.abs(data[i] - data[i + W]);
+        scores[Math.floor(y / CELL) * gw + Math.floor(x / CELL)] += e;
+      }
+    }
+    const per = CELL * CELL;
+    for (let i = 0; i < scores.length; i++) scores[i] /= per;
+    const sorted = Array.from(scores).sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] || 1;
+    // A real code region is dramatically denser than the background.
+    if (median <= 0) return null;
+    const order = Array.from(scores, (s, i) => [s, i] as [number, number])
+      .sort((a, b) => b[0] - a[0])
+      .slice(0, 5);
+    let best: { half: number; avg: number; px: number; py: number } | null = null;
+    const maxHalfPx = Math.min(W, H) * 0.1;
+    for (const [peak, pi] of order) {
+      if (peak < median * 6) continue;
+      const px = pi % gw;
+      const py = Math.floor(pi / gw);
+      const avg = (h: number) => {
+        let s = 0;
+        let n = 0;
+        for (let y = py - h; y <= py + h; y++) {
+          for (let x = px - h; x <= px + h; x++) {
+            if (x < 0 || y < 0 || x >= gw || y >= gh) continue;
+            s += scores[y * gw + x];
+            n++;
+          }
+        }
+        return n ? s / n : 0;
+      };
+      let half = 1;
+      while (
+        avg(half + 1) > median * 4 &&
+        (half + 1) * CELL <= maxHalfPx
+      ) {
+        half++;
+      }
+      const a = avg(half);
+      if (a > median * 4 && (!best || a > best.avg)) {
+        best = { half, avg: a, px, py };
+      }
+    }
+    if (!best) return null;
+    const pad = 12;
+    const left = Math.max(0, (best.px - best.half) * CELL - pad);
+    const top = Math.max(0, (best.py - best.half) * CELL - pad);
+    const width = Math.min(W - left, (best.half * 2 + 1) * CELL + pad * 2);
+    const height = Math.min(H - top, (best.half * 2 + 1) * CELL + pad * 2);
+    const blurred = await sharp(input)
+      .extract({ left, top, width, height })
+      .blur(5)
+      .toBuffer();
+    return await sharp(input)
+      .composite([{ input: blurred, left, top }])
+      .jpeg({ quality: 88 })
+      .toBuffer();
+  } catch {
+    return null;
   }
 }
