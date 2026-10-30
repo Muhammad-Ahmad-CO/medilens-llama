@@ -304,7 +304,7 @@ export default function Home() {
               <div className="scanner-card">
                 <h2 style={{ fontSize: "1.25rem" }}>Scan a medicine pack</h2>
                 <p className="small muted" style={{ margin: "6px 0 4px" }}>
-                  Take 1 photo, or up to 3 for a stronger check. Photos are downscaled in your browser before upload.
+                  Take 1 photo, or up to 4 for a stronger check. Photos are downscaled in your browser before upload.
                 </p>
                 <div className="guide-box">
                   <strong>Voice guide</strong>
