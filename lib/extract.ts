@@ -94,22 +94,24 @@ export async function extractLabel(
       : parseLabelText(text);
     return label;
   };
-  // Robustness loop, stage 1: a tilted, dark or low-contrast photo can make
-  // the vision model return no usable JSON. So we try up to 4 variants of
-  // the same photo — original, rotated 90°, rotated 270°, and an enhanced
-  // (auto-contrast + sharpen) copy — and keep the FIRST one that parses.
-  // API errors (bad key, rate limit) still throw immediately; only an
-  // unparseable reply moves on to the next variant.
+  // Robustness loop, stage 1: a tilted, dark or low-contrast photo — or one
+  // carrying a dense 2D barcode the vision model blanks on — can make the
+  // model return no usable JSON. So we try several variants of the same
+  // photo — original, code-masked, downscaled, rotated 90°/270°, enhanced —
+  // and keep the FIRST one that parses. API errors (bad key, rate limit)
+  // still throw immediately; only an unparseable reply moves on to the
+  // next variant.
   const variants = await buildVariants(imageBase64);
   for (const v of variants) {
     const label = await take(v, PROMPT, false);
     if (label) return { label, attempts, rawReplies };
   }
   // Stage 2: the model sometimes will not return strict JSON at all. Ask
-  // for plain visible text instead (original + enhanced copy) and extract
+  // for plain visible text instead (original + last variant) and extract
   // fields conservatively with regexps. Never guesses: batch/expiry need
   // explicit printed labels, drug names must match the fixed list.
-  for (const v of [variants[0], variants[variants.length - 1]]) {
+  const stage2 = variants.length > 1 ? [variants[0], variants[variants.length - 1]] : [variants[0]];
+  for (const v of stage2) {
     const label = await take(v, FREETEXT_PROMPT, true);
     if (label) return { label, attempts, rawReplies };
   }
