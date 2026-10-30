@@ -246,16 +246,17 @@ async function buildVariants(imageBase64: string): Promise<string[]> {
 
 // Dense 2D-code masking. Pakistani packs carry a DRAP Data Matrix code,
 // and the vision model returns EMPTY replies for images where that code
-// pattern is resolvable (a 2D-barcode safety filter). Covering just the
-// code with a white box breaks the pattern while the rest of the label
-// stays fully readable.
-// Detection: edge-density grid. A 2D code is the single densest compact
-// square region, far above the image median. From the peak-density cell
-// we expand in each of the four directions independently while the cells
-// stay dense — this centers the box on the code even when the peak cell
-// itself is off-center. Returns a JPEG buffer with the region whited
-// out, or null when no code-like region is found (the caller then simply
-// skips this variant).
+// pattern is resolvable (a 2D-barcode safety filter). Covering the code
+// with a white box breaks the pattern while the rest of the label stays
+// fully readable.
+// Detection: edge-density grid. A 2D code is a compact square region far
+// denser than the image median. From each peak-density cell we expand in
+// the four directions independently while cells stay dense — this centers
+// the box on the code even when the peak cell itself is off-center. We
+// repeat for up to 3 separate peaks (packs can carry more than one code;
+// masking only the densest leaves the others triggering the filter).
+// Returns a JPEG buffer with all found regions whited out, or null when
+// no code-like region is found (the caller then simply skips this variant).
 async function maskCodeRegion(input: Buffer): Promise<Buffer | null> {
   try {
     const sharp = (await import("sharp")).default;
@@ -283,51 +284,92 @@ async function maskCodeRegion(input: Buffer): Promise<Buffer | null> {
     const median = sorted[Math.floor(sorted.length / 2)] || 1;
     // A real code region is dramatically denser than the background.
     if (median <= 0) return null;
-    // Densest cell overall is the seed.
-    let pi = 0;
-    for (let i = 0; i < scores.length; i++) {
-      if (scores[i] > scores[pi]) pi = i;
-    }
-    if (scores[pi] < median * 6) return null;
-    const px = pi % gw;
-    const py = Math.floor(pi / gw);
     const dense = (x: number, y: number) =>
       x >= 0 && y >= 0 && x < gw && y < gh && scores[y * gw + x] > median * 3;
-    // Expand in each direction independently while cells stay dense.
-    // Caps: a pack code is small — never more than ~12% of image width.
     const cap = Math.ceil(Math.min(W, H) * 0.12 / CELL);
-    let l = 0, r = 0, u = 0, d = 0;
-    const colDense = (x: number, y0: number, y1: number) => {
-      for (let y = y0; y <= y1; y++) if (dense(x, y)) return true;
-      return false;
-    };
-    const rowDense = (y: number, x0: number, x1: number) => {
-      for (let x = x0; x <= x1; x++) if (dense(x, y)) return true;
-      return false;
-    };
-    while (l < cap && colDense(px - l - 1, py - u, py + d)) l++;
-    while (r < cap && colDense(px + r + 1, py - u, py + d)) r++;
-    while (u < cap && rowDense(py - u - 1, px - l, px + r)) u++;
-    while (d < cap && rowDense(py + d + 1, px - l, px + r)) d++;
-    // Sanity: the region must look like a code — roughly square and not
-    // tiny, not huge.
-    const bwCells = l + r + 1;
-    const bhCells = u + d + 1;
-    const aspect = Math.max(bwCells, bhCells) / Math.max(1, Math.min(bwCells, bhCells));
-    if (aspect > 2) return null;
-    if (bwCells * CELL < 24 || bhCells * CELL < 24) return null;
-    const pad = 10;
-    const left = Math.max(0, (px - l) * CELL - pad);
-    const top = Math.max(0, (py - u) * CELL - pad);
-    const width = Math.min(W - left, bwCells * CELL + pad * 2);
-    const height = Math.min(H - top, bhCells * CELL + pad * 2);
-    const white = await sharp({
-      create: { width, height, channels: 3, background: { r: 255, g: 255, b: 255 } },
-    })
-      .jpeg()
-      .toBuffer();
+    const work = Float32Array.from(scores);
+    const boxes: { left: number; top: number; width: number; height: number }[] = [];
+    for (let iter = 0; iter < 3; iter++) {
+      let pi = -1;
+      let peak = 0;
+      for (let i = 0; i < work.length; i++) {
+        if (work[i] > peak) { peak = work[i]; pi = i; }
+      }
+      if (pi < 0 || peak < median * 6) break;
+      const px = pi % gw;
+      const py = Math.floor(pi / gw);
+      let l = 0, r = 0, u = 0, d = 0;
+      const colDense = (x: number, y0: number, y1: number) => {
+        for (let y = y0; y <= y1; y++) if (dense(x, y)) return true;
+        return false;
+      };
+      const rowDense = (y: number, x0: number, x1: number) => {
+        for (let x = x0; x <= x1; x++) if (dense(x, y)) return true;
+        return false;
+      };
+      while (l < cap && colDense(px - l - 1, py - u, py + d)) l++;
+      while (r < cap && colDense(px + r + 1, py - u, py + d)) r++;
+      while (u < cap && rowDense(py - u - 1, px - l, px + r)) u++;
+      while (d < cap && rowDense(py + d + 1, px - l, px + r)) d++;
+      // Sanity: the region must look like a code — roughly square and
+      // not tiny, not huge.
+      const bwCells = l + r + 1;
+      const bhCells = u + d + 1;
+      const aspect = Math.max(bwCells, bhCells) / Math.max(1, Math.min(bwCells, bhCells));
+      const pad = 10;
+      const left = Math.max(0, (px - l) * CELL - pad);
+      const top = Math.max(0, (py - u) * CELL - pad);
+      const width = Math.min(W - left, bwCells * CELL + pad * 2);
+      const height = Math.min(H - top, bhCells * CELL + pad * 2);
+      // Suppress this region so the next iteration finds a different peak.
+      // (Always suppress, even if the box fails validation — otherwise a
+      // rejected peak would be picked again forever.)
+      const sx0 = Math.max(0, px - l - 1);
+      const sx1 = Math.min(gw - 1, px + r + 1);
+      const sy0 = Math.max(0, py - u - 1);
+      const sy1 = Math.min(gh - 1, py + d + 1);
+      for (let y = sy0; y <= sy1; y++)
+        for (let x = sx0; x <= sx1; x++) work[y * gw + x] = 0;
+      if (aspect > 2) continue;
+      if (bwCells * CELL < 24 || bhCells * CELL < 24) continue;
+      // Uniformity check: a 2D code is dense EVERYWHERE inside its box,
+      // while printed text has low-density gaps between lines. Split the
+      // box into 3x3 and require every sub-cell to stay well above the
+      // median — this keeps brand text readable and only masks real codes.
+      let uniform = true;
+      for (let cy = 0; cy < 3 && uniform; cy++) {
+        for (let cx = 0; cx < 3 && uniform; cx++) {
+          let s = 0;
+          let n = 0;
+          const xa = Math.floor(px - l + (cx * bwCells) / 3);
+          const xb = Math.floor(px - l + ((cx + 1) * bwCells) / 3);
+          const ya = Math.floor(py - u + (cy * bhCells) / 3);
+          const yb = Math.floor(py - u + ((cy + 1) * bhCells) / 3);
+          for (let y = ya; y <= yb; y++) {
+            for (let x = xa; x <= xb; x++) {
+              if (x < 0 || y < 0 || x >= gw || y >= gh) continue;
+              s += scores[y * gw + x];
+              n++;
+            }
+          }
+          if (!n || s / n < median * 2) uniform = false;
+        }
+      }
+      if (!uniform) continue;
+      boxes.push({ left, top, width, height });
+    }
+    if (boxes.length === 0) return null;
+    const composites: { input: Buffer; left: number; top: number }[] = [];
+    for (const b of boxes) {
+      const white = await sharp({
+        create: { width: b.width, height: b.height, channels: 3, background: { r: 255, g: 255, b: 255 } },
+      })
+        .jpeg()
+        .toBuffer();
+      composites.push({ input: white, left: b.left, top: b.top });
+    }
     return await sharp(input)
-      .composite([{ input: white, left, top }])
+      .composite(composites)
       .jpeg({ quality: 88 })
       .toBuffer();
   } catch {
