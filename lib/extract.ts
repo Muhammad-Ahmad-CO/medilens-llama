@@ -12,7 +12,7 @@ import type { Label } from "./verdict";
 
 const PROMPT = `Read this medicine pack photo. Return ONLY a JSON object, no other text:
 {"drugName": string or null, "manufacturer": string or null, "batchNumber": string or null, "expiryDate": string or null, "confidence": number 0 to 1, "barcode": string or null, "barcodeProduct": string or null}
-Rules: copy text exactly as printed. If a field is not readable, use null — never guess. barcode is the digits printed under the barcode, if visible, else null. barcodeProduct is a product name printed on or next to the barcode label, if one is visible, else null. Do not give dosage, usage or medical advice.`;
+Rules: copy text exactly as printed. The photo may be rotated or tilted — read rotated text as if it were upright. Look closely at small printed lines such as Batch / MFG / EXP / MRP. If a field is not readable, use null — never guess. You MUST always return the JSON object, even if you can read nothing (then use null for every field and confidence 0). Never reply with plain text, explanations, or refusals. barcode is the digits printed under the barcode, if visible, else null. barcodeProduct is a product name printed on or next to the barcode label, if one is visible, else null. Do not give dosage, usage or medical advice.`;
 
 export function providerConfig() {
   const provider = (process.env.AI_PROVIDER || "meta").toLowerCase();
