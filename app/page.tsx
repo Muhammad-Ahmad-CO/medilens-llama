@@ -366,7 +366,19 @@ export default function Home() {
                 {error && <p className="error-text">{error}</p>}
               </div>
 
-              {result && (
+              {result && result.verdict.level === "unreadable" ? (
+                <section className="verdict-card verdict-unreadable">
+                  <h2>{result.verdict.title}</h2>
+                  <p className="small muted" style={{ marginTop: 8 }}>
+                    The scan finished — this is the result, not an error. The photo needs one more try.
+                  </p>
+                  <h3 style={{ fontSize: "1.05rem", marginTop: 20 }}>What to do</h3>
+                  <ul className="reason-list">
+                    {result.verdict.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                  </ul>
+                  <div className="disclaimer-note">{result.disclaimer}</div>
+                </section>
+              ) : result && (
                 <section className={`verdict-card verdict-${result.verdict.level}`}>
                   <h2>{result.verdict.level.toUpperCase()} — {result.verdict.title}</h2>
                   <div style={{ marginTop: 12 }}>

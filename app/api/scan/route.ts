@@ -44,12 +44,18 @@ export async function POST(req: NextRequest) {
 
   // Read each photo separately, in parallel. A photo the vision step
   // fails on simply contributes nothing; the merged label is built from
-  // the photos that DID read. If none read, report the failure honestly
-  // instead of inventing a verdict.
+  // the photos that DID read. If none read, we still return a proper
+  // result — an "unreadable" card with exact retake guidance — never a
+  // dead-end error page. (A missing API key stays a 503: that is a setup
+  // problem, not a photo problem.)
   const reads = await Promise.allSettled(images.map((img) => extractLabel(img)));
-  const labels = reads
-    .filter((r): r is PromiseFulfilledResult<import("@/lib/verdict").Label | null> => r.status === "fulfilled")
-    .map((r) => r.value)
+  type Readout = { label: import("@/lib/verdict").Label | null; attempts: number };
+  const readouts: Readout[] = reads
+    .filter((r): r is PromiseFulfilledResult<Readout> => r.status === "fulfilled")
+    .map((r) => r.value);
+  const attempts = readouts.reduce((n, r) => n + r.attempts, 0);
+  const labels = readouts
+    .map((r) => r.label)
     .filter((l): l is import("@/lib/verdict").Label => l !== null);
   if (labels.length === 0) {
     const failed = reads.some((r) => r.status === "rejected");
@@ -63,7 +69,25 @@ export async function POST(req: NextRequest) {
     if (!providerConfig().key) {
       return NextResponse.json({ error: "AI_NOT_CONFIGURED", message: "Vision API key is not set on the server yet." }, { status: 503 });
     }
-    return NextResponse.json({ error: "UNREADABLE_PHOTO", message: "No photo could be read. Retake with the full label inside the photo — batch number and expiry date fully visible, not cut off at the edge — in good light." }, { status: 422 });
+    return NextResponse.json({
+      unreadable: true,
+      verdict: {
+        level: "unreadable",
+        title: "Couldn't read the photo",
+        reasons: [
+          "The photo was analysed several times — including rotated and enhanced copies — but no label text could be read.",
+          "Make sure the full label is inside the photo: the batch number and expiry date must be fully visible, not cut off at the edge.",
+          "Hold the phone steady, move a little closer, and avoid glare or shadows falling on the pack.",
+        ],
+      },
+      label: null,
+      perPhoto: [],
+      conflicts: [],
+      photosSent: images.length,
+      photosRead: 0,
+      attempts,
+      disclaimer: DISCLAIMER,
+    });
   }
 
   const merged = mergeLabels(labels);
@@ -111,6 +135,7 @@ export async function POST(req: NextRequest) {
     photosRead: labels.length,
     matchedDrug: drug,
     verdict,
+    attempts,
     disclaimer: DISCLAIMER,
   });
 }

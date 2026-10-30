@@ -110,10 +110,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .verdict-card.verdict-green { border-top: 4px solid var(--green); }
 .verdict-card.verdict-amber { border-top: 4px solid var(--amber-dot); }
 .verdict-card.verdict-red { border-top: 4px solid var(--red); }
+.verdict-card.verdict-unreadable { border-top: 4px solid var(--muted); }
 .verdict-card h2 { font-size: 1.5rem; }
 .verdict-green h2 { color: var(--green); }
 .verdict-amber h2 { color: var(--amber); }
 .verdict-red h2 { color: var(--red); }
+.verdict-unreadable h2 { color: var(--muted); }
 .data-row { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .data-row span:first-child { color: var(--muted); font-size: 0.9rem; }
 .conf-bar { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 8px 0 4px; }
