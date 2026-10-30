@@ -49,11 +49,18 @@ export async function POST(req: NextRequest) {
   // dead-end error page. (A missing API key stays a 503: that is a setup
   // problem, not a photo problem.)
   const reads = await Promise.allSettled(images.map((img) => extractLabel(img)));
-  type Readout = { label: import("@/lib/verdict").Label | null; attempts: number };
+  type Readout = { label: import("@/lib/verdict").Label | null; attempts: number; rawReplies: string[] };
   const readouts: Readout[] = reads
     .filter((r): r is PromiseFulfilledResult<Readout> => r.status === "fulfilled")
     .map((r) => r.value);
   const attempts = readouts.reduce((n, r) => n + r.attempts, 0);
+  // debug=1 exposes short samples of the raw vision replies so a failed
+  // read can be diagnosed (what did the model actually say?). Never on
+  // by default; samples are truncated to 200 chars and contain no images.
+  const debug = new URL(req.url).searchParams.get("debug") === "1";
+  const debugInfo = debug
+    ? { debug: { attempts, rawReplies: readouts.flatMap((r) => r.rawReplies) } }
+    : {};
   const labels = readouts
     .map((r) => r.label)
     .filter((l): l is import("@/lib/verdict").Label => l !== null);
@@ -86,6 +93,7 @@ export async function POST(req: NextRequest) {
       photosSent: images.length,
       photosRead: 0,
       attempts,
+      ...debugInfo,
       disclaimer: DISCLAIMER,
     });
   }
@@ -136,6 +144,7 @@ export async function POST(req: NextRequest) {
     matchedDrug: drug,
     verdict,
     attempts,
+    ...debugInfo,
     disclaimer: DISCLAIMER,
   });
 }

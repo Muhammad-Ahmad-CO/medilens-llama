@@ -77,10 +77,23 @@ export function parseLabelText(text: string): Label | null {
 
 export async function extractLabel(
   imageBase64: string
-): Promise<{ label: Label | null; attempts: number }> {
+): Promise<{ label: Label | null; attempts: number; rawReplies: string[] }> {
   const cfg = providerConfig();
-  if (!cfg.key) return { label: null, attempts: 0 };
+  if (!cfg.key) return { label: null, attempts: 0, rawReplies: [] };
   let attempts = 0;
+  const rawReplies: string[] = [];
+  const take = async (v: string, prompt: string, free: boolean) => {
+    attempts++;
+    const text = await callVision(v, prompt, cfg, 30000);
+    // Keep a short sample of every raw reply for debug=1 diagnostics.
+    rawReplies.push(text.slice(0, 200));
+    const label = free
+      ? text && !/NO_TEXT_VISIBLE/.test(text)
+        ? labelFromFreeText(text)
+        : null
+      : parseLabelText(text);
+    return label;
+  };
   // Robustness loop, stage 1: a tilted, dark or low-contrast photo can make
   // the vision model return no usable JSON. So we try up to 4 variants of
   // the same photo — original, rotated 90°, rotated 270°, and an enhanced
@@ -89,42 +102,18 @@ export async function extractLabel(
   // unparseable reply moves on to the next variant.
   const variants = await buildVariants(imageBase64);
   for (const v of variants) {
-    attempts++;
-    const label = await tryVisionCall(v, cfg);
-    if (label) return { label, attempts };
+    const label = await take(v, PROMPT, false);
+    if (label) return { label, attempts, rawReplies };
   }
   // Stage 2: the model sometimes will not return strict JSON at all. Ask
   // for plain visible text instead (original + enhanced copy) and extract
   // fields conservatively with regexps. Never guesses: batch/expiry need
   // explicit printed labels, drug names must match the fixed list.
   for (const v of [variants[0], variants[variants.length - 1]]) {
-    attempts++;
-    const text = await tryFreeText(v, cfg);
-    const label = text ? labelFromFreeText(text) : null;
-    if (label) return { label, attempts };
+    const label = await take(v, FREETEXT_PROMPT, true);
+    if (label) return { label, attempts, rawReplies };
   }
-  return { label: null, attempts };
-}
-
-// One vision attempt against a single image variant. Returns the parsed
-// label, or null when the reply has no usable JSON. Throws on API errors.
-async function tryVisionCall(
-  jpegBase64: string,
-  cfg: ReturnType<typeof providerConfig>
-): Promise<Label | null> {
-  const text = await callVision(jpegBase64, PROMPT, cfg, 30000);
-  return parseLabelText(text);
-}
-
-// One free-text attempt: returns the raw visible text, or null when the
-// model reports NO_TEXT_VISIBLE or the reply is empty. Throws on API errors.
-async function tryFreeText(
-  jpegBase64: string,
-  cfg: ReturnType<typeof providerConfig>
-): Promise<string | null> {
-  const text = await callVision(jpegBase64, FREETEXT_PROMPT, cfg, 30000);
-  if (!text || /NO_TEXT_VISIBLE/.test(text)) return null;
-  return text;
+  return { label: null, attempts, rawReplies };
 }
 
 // Shared vision call: 30s cap per attempt (the model usually answers in
