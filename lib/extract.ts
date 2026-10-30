@@ -208,11 +208,11 @@ async function buildVariants(imageBase64: string): Promise<string[]> {
     const toB64 = (b: Buffer) => b.toString("base64");
     // 0: original, normalised to JPEG.
     variants.push(toB64(await sharp(input).jpeg({ quality: 88 }).toBuffer()));
-    // 1: code-blurred — masks the densest 2D-barcode-like region with a
-    // strong blur (see blurCodeRegion). Added only when such a region
+    // 1: code-masked — covers the densest 2D-barcode-like region with
+    // white (see maskCodeRegion). Added only when such a region
     // is actually found.
-    const deCoded = await blurCodeRegion(input);
-    if (deCoded) variants.push(toB64(deCoded));
+    const masked = await maskCodeRegion(input);
+    if (masked) variants.push(toB64(masked));
     // 2: small (0.35x) — second line of 2D-code evasion: the code pattern
     // becomes unresolvable while big text stays readable.
     variants.push(
@@ -244,15 +244,17 @@ async function buildVariants(imageBase64: string): Promise<string[]> {
 
 // Dense 2D-code masking. Pakistani packs carry a DRAP Data Matrix code,
 // and the vision model returns EMPTY replies for images where that code
-// pattern is resolvable (a 2D-barcode safety filter). Masking just the
-// code region with a strong blur breaks the pattern while nearby text
-// stays readable — unlike downscaling, which also shrinks the text.
+// pattern is resolvable (a 2D-barcode safety filter). Covering just the
+// code with a white box breaks the pattern while the rest of the label
+// stays fully readable.
 // Detection: edge-density grid. A 2D code is the single densest compact
-// square region, far above the image median. We grow a square from the
-// peak-density cell while the average density inside stays high.
-// Returns a JPEG buffer with the region blurred, or null when no
-// code-like region is found (then the caller simply skips this variant).
-async function blurCodeRegion(input: Buffer): Promise<Buffer | null> {
+// square region, far above the image median. From the peak-density cell
+// we expand in each of the four directions independently while the cells
+// stay dense — this centers the box on the code even when the peak cell
+// itself is off-center. Returns a JPEG buffer with the region whited
+// out, or null when no code-like region is found (the caller then simply
+// skips this variant).
+async function maskCodeRegion(input: Buffer): Promise<Buffer | null> {
   try {
     const sharp = (await import("sharp")).default;
     const { data, info } = await sharp(input)
@@ -279,51 +281,51 @@ async function blurCodeRegion(input: Buffer): Promise<Buffer | null> {
     const median = sorted[Math.floor(sorted.length / 2)] || 1;
     // A real code region is dramatically denser than the background.
     if (median <= 0) return null;
-    const order = Array.from(scores, (s, i) => [s, i] as [number, number])
-      .sort((a, b) => b[0] - a[0])
-      .slice(0, 5);
-    let best: { half: number; avg: number; px: number; py: number } | null = null;
-    const maxHalfPx = Math.min(W, H) * 0.1;
-    for (const [peak, pi] of order) {
-      if (peak < median * 6) continue;
-      const px = pi % gw;
-      const py = Math.floor(pi / gw);
-      const avg = (h: number) => {
-        let s = 0;
-        let n = 0;
-        for (let y = py - h; y <= py + h; y++) {
-          for (let x = px - h; x <= px + h; x++) {
-            if (x < 0 || y < 0 || x >= gw || y >= gh) continue;
-            s += scores[y * gw + x];
-            n++;
-          }
-        }
-        return n ? s / n : 0;
-      };
-      let half = 1;
-      while (
-        avg(half + 1) > median * 4 &&
-        (half + 1) * CELL <= maxHalfPx
-      ) {
-        half++;
-      }
-      const a = avg(half);
-      if (a > median * 4 && (!best || a > best.avg)) {
-        best = { half, avg: a, px, py };
-      }
+    // Densest cell overall is the seed.
+    let pi = 0;
+    for (let i = 0; i < scores.length; i++) {
+      if (scores[i] > scores[pi]) pi = i;
     }
-    if (!best) return null;
-    const pad = 12;
-    const left = Math.max(0, (best.px - best.half) * CELL - pad);
-    const top = Math.max(0, (best.py - best.half) * CELL - pad);
-    const width = Math.min(W - left, (best.half * 2 + 1) * CELL + pad * 2);
-    const height = Math.min(H - top, (best.half * 2 + 1) * CELL + pad * 2);
-    const blurred = await sharp(input)
-      .extract({ left, top, width, height })
-      .blur(5)
+    if (scores[pi] < median * 6) return null;
+    const px = pi % gw;
+    const py = Math.floor(pi / gw);
+    const dense = (x: number, y: number) =>
+      x >= 0 && y >= 0 && x < gw && y < gh && scores[y * gw + x] > median * 3;
+    // Expand in each direction independently while cells stay dense.
+    // Caps: a pack code is small — never more than ~12% of image width.
+    const cap = Math.ceil(Math.min(W, H) * 0.12 / CELL);
+    let l = 0, r = 0, u = 0, d = 0;
+    const colDense = (x: number, y0: number, y1: number) => {
+      for (let y = y0; y <= y1; y++) if (dense(x, y)) return true;
+      return false;
+    };
+    const rowDense = (y: number, x0: number, x1: number) => {
+      for (let x = x0; x <= x1; x++) if (dense(x, y)) return true;
+      return false;
+    };
+    while (l < cap && colDense(px - l - 1, py - u, py + d)) l++;
+    while (r < cap && colDense(px + r + 1, py - u, py + d)) r++;
+    while (u < cap && rowDense(py - u - 1, px - l, px + r)) u++;
+    while (d < cap && rowDense(py + d + 1, px - l, px + r)) d++;
+    // Sanity: the region must look like a code — roughly square and not
+    // tiny, not huge.
+    const bwCells = l + r + 1;
+    const bhCells = u + d + 1;
+    const aspect = Math.max(bwCells, bhCells) / Math.max(1, Math.min(bwCells, bhCells));
+    if (aspect > 2) return null;
+    if (bwCells * CELL < 24 || bhCells * CELL < 24) return null;
+    const pad = 10;
+    const left = Math.max(0, (px - l) * CELL - pad);
+    const top = Math.max(0, (py - u) * CELL - pad);
+    const width = Math.min(W - left, bwCells * CELL + pad * 2);
+    const height = Math.min(H - top, bhCells * CELL + pad * 2);
+    const white = await sharp({
+      create: { width, height, channels: 3, background: { r: 255, g: 255, b: 255 } },
+    })
+      .jpeg()
       .toBuffer();
     return await sharp(input)
-      .composite([{ input: blurred, left, top }])
+      .composite([{ input: white, left, top }])
       .jpeg({ quality: 88 })
       .toBuffer();
   } catch {
