@@ -4,7 +4,7 @@ import { findDrug } from "@/lib/drugs";
 import { evaluate, DISCLAIMER } from "@/lib/verdict";
 import { mergeLabels } from "@/lib/merge";
 
-// Item 1: 1 to 3 photos per scan, 6 MB per photo, 10 scans/minute per IP
+// Item 1: 1 to 4 photos per scan, 6 MB per photo, 10 scans/minute per IP
 // (in-memory, single instance). One request counts as one scan, however
 // many photos it carries.
 const MAX_BYTES = 6 * 1024 * 1024;
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   hits.set(ip, h && h.reset > now ? { count: h.count + 1, reset: h.reset } : { count: 1, reset: now + 60000 });
 
   const body = await req.json().catch(() => null);
-  // Accept { images: [1..3] } (new multi-photo flow) or { image } (old
+  // Accept { images: [1..4] } (new multi-photo flow) or { image } (old
   // single-photo flow, kept working).
   let images: string[] = [];
   if (Array.isArray(body?.images)) {
@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
   } else if (body?.image) {
     images = [String(body.image).replace(/^data:image\/\w+;base64,/, "")];
   }
-  if (images.length < 1 || images.length > 3) {
-    return NextResponse.json({ error: "Send 1 to 3 photos." }, { status: 400 });
+  if (images.length < 1 || images.length > 4) {
+    return NextResponse.json({ error: "Send 1 to 4 photos." }, { status: 400 });
   }
   for (const img of images) {
     if (img.length > MAX_BYTES) {

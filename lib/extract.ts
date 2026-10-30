@@ -11,15 +11,15 @@
 import type { Label } from "./verdict";
 import { DRUG_LIST } from "./drugs";
 
-const PROMPT = `Read this medicine pack photo. Return ONLY a JSON object, no other text:
+const PROMPT = `Read this medicine pack or strip photo. The photo may show the outer pack/box OR the medicine strip itself (the foil/blister "patta" holding the tablets). Return ONLY a JSON object, no other text:
 {"drugName": string or null, "manufacturer": string or null, "batchNumber": string or null, "expiryDate": string or null, "confidence": number 0 to 1, "barcode": string or null, "barcodeProduct": string or null}
-Rules: copy text exactly as printed. The photo may be rotated or tilted — read rotated text as if it were upright. Look closely at small printed lines such as Batch / MFG / EXP / MRP. If a field is not readable, use null — never guess. You MUST always return the JSON object, even if you can read nothing (then use null for every field and confidence 0). Never reply with plain text, explanations, or refusals. barcode is the digits printed under the barcode, if visible, else null. barcodeProduct is a product name printed on or next to the barcode label, if one is visible, else null. Do not give dosage, usage or medical advice.`;
+Rules: copy text exactly as printed. On a strip, the drug name is usually printed on the foil — read it from there. The photo may be rotated or tilted — read rotated text as if it were upright. Look closely at small printed lines such as Batch / MFG / EXP / MRP. If a field is not readable, use null — never guess. You MUST always return the JSON object, even if you can read nothing (then use null for every field and confidence 0). Never reply with plain text, explanations, or refusals. barcode is the digits printed under the barcode, if visible, else null. barcodeProduct is a product name printed on or next to the barcode label, if one is visible, else null. Do not give dosage, usage or medical advice.`;
 
 // Stage-2 fallback prompt: when the model will not return strict JSON,
 // ask for plain visible text instead and extract fields with regexps.
 // Free text is NEVER trusted blindly — batch/expiry need explicit labels
 // (Batch, MFG, EXP) and drug names must match the fixed medicine list.
-const FREETEXT_PROMPT = `Read this medicine pack photo and write down every line of text you can see, one line per line. Copy text exactly as printed. The photo may be rotated or tilted. If you cannot see any text clearly, reply with exactly: NO_TEXT_VISIBLE. Do not give dosage, usage or medical advice.`;
+const FREETEXT_PROMPT = `Read this medicine pack or strip photo and write down every line of text you can see, one line per line. The photo may show the outer pack/box or the medicine strip itself (foil/blister). Copy text exactly as printed. The photo may be rotated or tilted. If you cannot see any text clearly, reply with exactly: NO_TEXT_VISIBLE. Do not give dosage, usage or medical advice.`;
 
 export function providerConfig() {
   const provider = (process.env.AI_PROVIDER || "meta").toLowerCase();

@@ -28,10 +28,11 @@ const SLOTS = [
   { key: "front", label: "1. Front of pack — drug name and maker", short: "Front" },
   { key: "strip", label: "2. Batch / expiry strip — batch and expiry", short: "Batch / expiry strip" },
   { key: "pack", label: "3. Full pack / seal — whole pack", short: "Full pack / seal" },
+  { key: "patta", label: "4. Medicine strip (patta) — the foil / blister", short: "Strip (patta)" },
 ] as const;
 
 export default function Home() {
-  const [photos, setPhotos] = useState<string[]>(["", "", ""]);
+  const [photos, setPhotos] = useState<string[]>(["", "", "", ""]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
@@ -253,7 +254,7 @@ export default function Home() {
   async function scan() {
     const images = photos.filter((p) => p);
     if (images.length === 0) return;
-    // Per-photo readings are labelled "Photo 1, 2, 3" by send order —
+    // Per-photo readings are labelled "Photo 1–4" by send order —
     // never by slot name. Slots are just pickers; any photo may go in any
     // slot and each photo is analysed for whatever it shows.
     setBusy(true); setError(""); setResult(null); setSavedMsg("");
@@ -279,7 +280,7 @@ export default function Home() {
               <p className="eyebrow">Medicine authenticity checker</p>
               <h1>Is this medicine genuine?</h1>
               <p className="lead">
-                Photograph a medicine pack. Meta Muse vision reads the label, batch and expiry, then
+                Photograph a medicine pack or its strip. Meta Muse vision reads the label, batch and expiry, then
                 checks them against a fresh list of 50 common Pakistani medicines — and explains the
                 result in plain words, with reasons you can check.
               </p>
@@ -345,7 +346,7 @@ export default function Home() {
                   {guideError && <p className="error-text">{guideError}</p>}
                 </div>
                 <p className="small muted" style={{ margin: "0 0 8px" }}>
-                  Any photo in any slot — each photo is read for whatever it shows.
+                  Any photo in any slot — pack, strip (patta), or batch label. Each photo is read for whatever it shows.
                 </p>
                 {SLOTS.map((slot, i) => (
                   <div className="slot" key={slot.key}>
