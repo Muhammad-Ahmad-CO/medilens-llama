@@ -5,7 +5,25 @@ const display = Manrope({ subsets: ["latin"], weight: ["700", "800"], variable: 
 const text = Inter({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-inter" });
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["500"], variable: "--font-plex-mono" });
 
-export const metadata = { title: "MediLens — Is this medicine genuine?", description: "Photo scan, batch and expiry check, GREEN/AMBER/RED screening verdict. Screening only, not medical advice.", icons: { icon: "/logo.svg" } };
+export const metadata = {
+  title: "MediLens — Is this medicine genuine?",
+  description: "Photo scan, batch and expiry check, GREEN/AMBER/RED screening verdict. Screening only, not medical advice.",
+  icons: { icon: "/logo.svg" },
+  openGraph: {
+    title: "MediLens — Is this medicine genuine?",
+    description: "Scan any medicine pack with your phone camera. AI checks batch, expiry & maker — GREEN/AMBER/RED verdict in seconds.",
+    url: "https://medilens-llama.vercel.app",
+    siteName: "MediLens",
+    images: [{ url: "https://medilens-llama.vercel.app/og-image.png", width: 1200, height: 630 }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "MediLens — Is this medicine genuine?",
+    description: "Scan any medicine pack with your phone camera. AI checks batch, expiry & maker — GREEN/AMBER/RED verdict in seconds.",
+    images: ["https://medilens-llama.vercel.app/og-image.png"],
+  },
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
